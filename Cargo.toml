@@ -5,10 +5,17 @@ authors = ["Lachezar Lechev <lachezar.lechev@adex.network>"]
 edition = "2018"
 
 [dependencies]
+primitives = { git = "https://github.com/AdExNetwork/adex-validator-stack-rust", branch = "clean-up-marketing-campaign" }
 # Server
-tokio = { version = "0.2", features = ["macros", "rt-threaded"] }
+tokio = { version = "0.2", features = ["macros", "rt-threaded", "sync"] }
 hyper = { version = "0.13", features = ["stream"] }
 http = "0.2.0"
 
-[dev-dependencies]
-reqwest = "0.10"
+
+reqwest = { version = "0.10", features = ["json"] }
+
+serde = { version = "^1.0", features = ['derive'] }
+serde_json = "^1.0"
+
+# Other
+lazy_static = "1.4"

@@ -5,9 +5,9 @@ use std::net::SocketAddr;
 use supermarket::serve;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Construct our SocketAddr to listen on...
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
 
-    serve(addr).await;
+    Ok(serve(addr).await?)
 }
