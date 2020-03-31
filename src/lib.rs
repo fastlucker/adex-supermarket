@@ -8,6 +8,7 @@ use std::net::SocketAddr;
 use http::{uri::Authority, Uri};
 
 mod cache;
+mod market;
 
 #[derive(Debug)]
 pub enum Error {
@@ -51,9 +52,9 @@ pub async fn serve(addr: SocketAddr) -> Result<(), Error> {
 
     let client = Client::new();
     // @TODO: take this from config or env. variable
-    let market_url = Uri::from_static("http://localhost:8005");
+    let market_url = "http://localhost:8005";
 
-    let cache = spawn_fetch_campaigns(&market_url).await?;
+    let cache = spawn_fetch_campaigns(market_url).await?;
 
     // And a MakeService to handle each connection...
     let make_service = make_service_fn(|_| {
@@ -112,8 +113,8 @@ async fn handle(
     }
 }
 
-async fn spawn_fetch_campaigns(market_uri: &Uri) -> Result<Cache, reqwest::Error> {
-    let cache = Cache::initialize(market_uri).await?;
+async fn spawn_fetch_campaigns(market_uri: &str) -> Result<Cache, reqwest::Error> {
+    let cache = Cache::initialize(market_uri.into()).await?;
 
     let cache_spawn = cache.clone();
     // Every few minutes, we will get the non-finalized from the market,
@@ -122,7 +123,7 @@ async fn spawn_fetch_campaigns(market_uri: &Uri) -> Result<Cache, reqwest::Error
         use tokio::time::{delay_for, Duration};
         loop {
             // @TODO: Move to config
-            delay_for(Duration::from_secs(10 * 60)).await;
+            delay_for(Duration::from_secs(1 * 60)).await;
             // @TODO: Logging
             match cache_spawn.update_campaigns().await {
                 Err(e) => eprintln!("{}", e),
