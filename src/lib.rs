@@ -47,12 +47,10 @@ impl From<reqwest::Error> for Error {
     }
 }
 
-pub async fn serve(addr: SocketAddr) -> Result<(), Error> {
+pub async fn serve(addr: SocketAddr, market_url: &str) -> Result<(), Error> {
     use hyper::service::{make_service_fn, service_fn};
 
     let client = Client::new();
-    // @TODO: take this from config or env. variable
-    let market_url = "http://localhost:8005";
 
     let cache = spawn_fetch_campaigns(market_url).await?;
 
