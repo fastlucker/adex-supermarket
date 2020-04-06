@@ -62,7 +62,7 @@ pub async fn serve(addr: SocketAddr, market_url: &str) -> Result<(), Error> {
             Ok::<_, Error>(service_fn(move |req| {
                 let client = client.clone();
                 let cache = cache.clone();
-                async move { handle(req, cache, client).await }
+                async move { handle(req, cache, client, market_url).await }
             }))
         }
     });
@@ -82,6 +82,7 @@ async fn handle(
     mut req: Request<Body>,
     _cache: Cache,
     client: Client<HttpConnector>,
+    market_uri: &str,
 ) -> Result<Response<Body>, Error> {
     match (req.uri().path(), req.method()) {
         ("/units-for-slot", &Method::GET) => {
@@ -97,10 +98,11 @@ async fn handle(
                 .map(ToOwned::to_owned)
                 .unwrap_or_else(|| PathAndQuery::from_static(""));
 
+            let split_uri: Vec<&str> = market_uri.split("://").collect();
+            let host_uri = split_uri[1].to_owned();
             let uri = Uri::builder()
-                // @TODO: Move to config or env. variable
-                .scheme("http")
-                .authority(Authority::from_static("localhost:8005"))
+                .scheme(split_uri[0])
+                .authority(&host_uri[..])
                 .path_and_query(path_and_query)
                 .build()?;
 
