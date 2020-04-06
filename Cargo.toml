@@ -11,11 +11,13 @@ tokio = { version = "0.2", features = ["macros", "rt-threaded", "sync"] }
 hyper = { version = "0.13", features = ["stream"] }
 http = "0.2.0"
 
-
 reqwest = { version = "0.10", features = ["json"] }
 
 serde = { version = "^1.0", features = ['derive'] }
 serde_json = "^1.0"
-
+# Logging
+slog = { version = "2.5" }
+slog-term = "2.5"
+slog-async = "2.5"
 # Other
 lazy_static = "1.4"

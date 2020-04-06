@@ -1,6 +1,7 @@
 use reqwest::{Client, Error};
 use primitives::market::{Campaign, StatusType};
 use std::fmt;
+use slog::{Logger, info};
 
 pub(crate) type MarketUrl = String;
 
@@ -8,6 +9,7 @@ pub(crate) type MarketUrl = String;
 pub(crate) struct MarketApi {
     market_url: MarketUrl,
     client: Client,
+    logger: Logger,
 }
 
 impl MarketApi {
@@ -15,13 +17,14 @@ impl MarketApi {
     /// MAX(500)
     const MARKET_LIMIT: u64 = 500;
 
-    pub fn new(market_url: MarketUrl) -> Result<Self, Error> {
+    pub fn new(market_url: MarketUrl, logger: Logger) -> Result<Self, Error> {
         // @TODO: maybe add timeout?
         let client = Client::new();
 
         Ok(Self {
             market_url,
             client,
+            logger,
         })
     }
 
@@ -64,7 +67,11 @@ impl MarketApi {
             .send()
             .await?;
 
-        response.json().await
+        let campaigns: Vec<Campaign> = response.json().await?;
+
+        info!(&self.logger, "{} campaigns fetched from {}", campaigns.len(), url);
+
+        Ok(campaigns)
     }
 }
 
