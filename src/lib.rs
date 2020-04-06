@@ -15,6 +15,7 @@ pub enum Error {
     Hyper(hyper::Error),
     Http(http::Error),
     Reqwest(reqwest::Error),
+    InvalidUri(http::uri::InvalidUri),
 }
 
 impl fmt::Display for Error {
@@ -23,6 +24,7 @@ impl fmt::Display for Error {
             Error::Hyper(e) => e.fmt(f),
             Error::Http(e) => e.fmt(f),
             Error::Reqwest(e) => e.fmt(f),
+            Error::InvalidUri(e) => e.fmt(f),
         }
     }
 }
@@ -47,21 +49,29 @@ impl From<reqwest::Error> for Error {
     }
 }
 
-pub async fn serve(addr: SocketAddr, market_url: &str) -> Result<(), Error> {
+impl From<http::uri::InvalidUri> for Error {
+    fn from(e: http::uri::InvalidUri) -> Error {
+        Error::InvalidUri(e)
+    }
+}
+
+pub async fn serve(addr: SocketAddr, market_url: String) -> Result<(), Error> {
     use hyper::service::{make_service_fn, service_fn};
 
     let client = Client::new();
 
-    let cache = spawn_fetch_campaigns(market_url).await?;
+    let cache = spawn_fetch_campaigns(&market_url).await?;
 
     // And a MakeService to handle each connection...
     let make_service = make_service_fn(|_| {
         let client = client.clone();
         let cache = cache.clone();
+        let market_url = market_url.clone();
         async move {
             Ok::<_, Error>(service_fn(move |req| {
                 let client = client.clone();
                 let cache = cache.clone();
+                let market_url = market_url.clone();
                 async move { handle(req, cache, client, market_url).await }
             }))
         }
@@ -82,7 +92,7 @@ async fn handle(
     mut req: Request<Body>,
     _cache: Cache,
     client: Client<HttpConnector>,
-    market_uri: &str,
+    market_uri: String,
 ) -> Result<Response<Body>, Error> {
     match (req.uri().path(), req.method()) {
         ("/units-for-slot", &Method::GET) => {
@@ -98,13 +108,7 @@ async fn handle(
                 .map(ToOwned::to_owned)
                 .unwrap_or_else(|| PathAndQuery::from_static(""));
 
-            let split_uri: Vec<&str> = market_uri.split("://").collect();
-            let host_uri = split_uri[1].to_owned();
-            let uri = Uri::builder()
-                .scheme(split_uri[0])
-                .authority(&host_uri[..])
-                .path_and_query(path_and_query)
-                .build()?;
+            let uri = format!("{}{}", market_uri, path_and_query).parse::<Uri>()?;
 
             *req.uri_mut() = uri;
 
@@ -113,7 +117,7 @@ async fn handle(
     }
 }
 
-async fn spawn_fetch_campaigns(market_uri: &str) -> Result<Cache, reqwest::Error> {
+async fn spawn_fetch_campaigns(market_uri: &String) -> Result<Cache, reqwest::Error> {
     let cache = Cache::initialize(market_uri.into()).await?;
 
     let cache_spawn = cache.clone();
