@@ -1,6 +1,13 @@
-use primitives::{market::Campaign, BigNum};
+use chrono::Duration;
+use primitives::sentry::LastApproved;
+use primitives::{
+    market::Campaign,
+    sentry::{LastApprovedResponse, HeartbeatValidatorMessage},
+    validator::{Heartbeat, MessageTypes},
+    BigNum,
+};
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use sentry_api::SentryApi;
 
 #[derive(Debug)]
@@ -26,38 +33,19 @@ pub enum Finalized {
     Withdraw,
 }
 
+struct Messages {
+    last_approved: Option<LastApproved>,
+    leader_heartbeats: Vec<Heartbeat>,
+    follower_heartbeats: Vec<Heartbeat>,
+}
+
 pub async fn get_status(
     sentry: &SentryApi,
     campaign: &Campaign,
 ) -> Result<Status, Box<dyn std::error::Error>> {
-    use primitives::validator::MessageTypes;
-
     // Is campaign expired?
     if Utc::now() > campaign.channel.valid_until {
         return Ok(Status::Finalized(Finalized::Expired));
-    }
-
-    let leader = campaign.channel.spec.validators.leader();
-    let follower = campaign.channel.spec.validators.follower();
-
-    let leader_la = sentry.get_last_approved(&leader).await?;
-    let _follower_la = sentry.get_last_approved(&follower).await?;
-
-    let last_approved_balances = leader_la
-        .last_approved
-        .and_then(|last_approved| last_approved.new_state)
-        .and_then(|new_state| match new_state.msg {
-            MessageTypes::NewState(new_state) => Some(new_state.balances),
-            _ => None,
-        })
-        .unwrap_or_default();
-
-    // TODO: Get from last approved
-    let total_balances: BigNum = last_approved_balances.values().sum();
-
-    // Is campaign exhausted?
-    if total_balances >= campaign.channel.deposit_amount {
-        return Ok(Status::Finalized(Finalized::Exhausted));
     }
 
     // impl: Is in withdraw period?
@@ -65,13 +53,46 @@ pub async fn get_status(
         return Ok(Status::Finalized(Finalized::Withdraw));
     }
 
+    let leader = campaign.channel.spec.validators.leader();
+    let follower = campaign.channel.spec.validators.follower();
+
+    let leader_la = sentry.get_last_approved(&leader).await?;
+
+    let total_balances: BigNum = leader_la
+        .last_approved
+        .as_ref()
+        .and_then(|last_approved| last_approved.new_state.as_ref())
+        .and_then(|new_state| match &new_state.msg {
+            MessageTypes::NewState(new_state) => {
+                let total = new_state.balances.values().sum();
+                Some(total)
+            }
+            _ => None,
+        })
+        .unwrap_or_default();
+
+    // Is campaign exhausted?
+    if total_balances >= campaign.channel.deposit_amount {
+        return Ok(Status::Finalized(Finalized::Exhausted));
+    }
+
+    // don't fetch follower, if campaign is exhausted
+    let follower_la = sentry.get_last_approved(&follower).await?;
+
+    // setup the messages for the checks
+    let messages = Messages {
+        last_approved: leader_la.last_approved,
+        leader_heartbeats: get_heartbeats(leader_la.heartbeats),
+        follower_heartbeats: get_heartbeats(follower_la.heartbeats),
+    };
+
     // impl: isInitializing
     if is_initializing() {
         return Ok(Status::Initializing);
     }
 
     // impl: isOffline
-    let offline = is_offline();
+    let offline = is_offline(&messages);
 
     // impl: isDisconnected
     let disconnected = is_disconnected();
@@ -99,11 +120,30 @@ pub async fn get_status(
     }
 }
 
+fn get_heartbeats(heartbeats: Option<Vec<HeartbeatValidatorMessage>>) -> Vec<Heartbeat> {
+    match heartbeats {
+        Some(heartbeats) => heartbeats
+            .into_iter()
+            .filter_map(|heartbeat| match heartbeat.msg {
+                MessageTypes::Heartbeat(heartbeat) => Some(heartbeat),
+                _ => None,
+            })
+            .collect(),
+        None => Default::default(),
+    }
+}
+
 fn is_initializing() -> bool {
     todo!()
 }
 
-fn is_offline() -> bool {
+fn is_offline(messages: &Messages) -> bool {
+    let recency = Duration::minutes(4);
+    messages.leader_heartbeats.iter().filter(|h| is_date_recent(&recency, &h.timestamp)).count() == 0 ||
+    messages.follower_heartbeats.iter().filter(|h| is_date_recent(&recency, &h.timestamp)).count() == 0
+}
+
+fn is_date_recent(recency: &Duration, date: &DateTime<Utc>) -> bool {
     todo!()
 }
 
