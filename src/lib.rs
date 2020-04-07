@@ -9,6 +9,7 @@ use http::{uri::Authority, Uri};
 
 mod cache;
 mod market;
+mod status;
 
 #[derive(Debug)]
 pub enum Error {

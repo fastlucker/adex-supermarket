@@ -20,7 +20,17 @@ pub struct Cache {
 
 impl Cache {
     const FINALIZED_STATUSES: [StatusType; 3] = [Exhausted, Withdraw, Expired];
-    const NON_FINALIZED_CAMPAIGN_STATUSES: [StatusType; 9] = [Active, Ready, Pending, Initializing, Waiting, Offline, Disconnected, Unhealthy, Invalid];
+    const NON_FINALIZED_CAMPAIGN_STATUSES: [StatusType; 9] = [
+        Active,
+        Ready,
+        Pending,
+        Initializing,
+        Waiting,
+        Offline,
+        Disconnected,
+        Unhealthy,
+        Invalid,
+    ];
     // const UNSOUND: [StatusType; 4] = [Offline, Disconnected, Unhealthy, Invalid];
 
     /// Fetches all the campaigns from the Market and returns the Cache instance
@@ -30,7 +40,11 @@ impl Cache {
         let all_campaigns = market.fetch_campaigns(&Statuses::All).await?;
 
         let (active, finalized, balances) = all_campaigns.into_iter().fold(
-            (HashMap::default(), HashSet::default(), BalancesMap::default()),
+            (
+                HashMap::default(),
+                HashSet::default(),
+                BalancesMap::default(),
+            ),
             |(mut active, mut finalized, mut balances), campaign: Campaign| {
                 if Self::FINALIZED_STATUSES.contains(&campaign.status.status_type) {
                     // we don't care if the campaign was already in the set
@@ -70,7 +84,7 @@ impl Cache {
         let current_campaigns = self.active.clone();
 
         let read_campaigns = current_campaigns.read().await;
-        
+
         let filtered = fetched_campaigns.into_iter().filter_map(|campaign| {
             // if the key doesn't exist, leave it
             if !read_campaigns.contains_key(&campaign.channel.id) {

@@ -1,5 +1,5 @@
-use reqwest::{Client, Error};
 use primitives::market::{Campaign, StatusType};
+use reqwest::{Client, Error};
 use std::fmt;
 
 pub(crate) type MarketUrl = String;
@@ -19,10 +19,7 @@ impl MarketApi {
         // @TODO: maybe add timeout?
         let client = Client::new();
 
-        Ok(Self {
-            market_url,
-            client,
-        })
+        Ok(Self { market_url, client })
     }
 
     pub async fn fetch_campaigns(&self, statuses: &Statuses<'_>) -> Result<Vec<Campaign>, Error> {
@@ -34,7 +31,7 @@ impl MarketApi {
             let mut page_results = self.fetch_page(Self::MARKET_LIMIT, &statuses, skip).await?;
             // get the count before appending the page results to all
             let count = page_results.len() as u64;
-            
+
             // append all received campaigns
             campaigns.append(&mut page_results);
             // add the number of results we need to skip in the next iteration
@@ -47,7 +44,7 @@ impl MarketApi {
                 break;
             }
         }
-    
+
         Ok(campaigns)
     }
 
@@ -58,11 +55,11 @@ impl MarketApi {
         statuses: &Statuses<'_>,
         skip: u64,
     ) -> Result<Vec<Campaign>, Error> {
-        let url = format!("{}/campaigns?{}&limit={}&skip={}", self.market_url, statuses, limit, skip);
-        let response = self.client
-            .get(&url)
-            .send()
-            .await?;
+        let url = format!(
+            "{}/campaigns?{}&limit={}&skip={}",
+            self.market_url, statuses, limit, skip
+        );
+        let response = self.client.get(&url).send().await?;
 
         response.json().await
     }
@@ -82,11 +79,10 @@ impl fmt::Display for Statuses<'_> {
         match self {
             All => write!(f, "all"),
             Only(statuses) => {
-                let statuses = statuses.iter().map(ToString::to_string)
-                .collect::<Vec<_>>();
-                
+                let statuses = statuses.iter().map(ToString::to_string).collect::<Vec<_>>();
+
                 write!(f, "status={}", statuses.join(","))
-            },
+            }
         }
     }
 }
