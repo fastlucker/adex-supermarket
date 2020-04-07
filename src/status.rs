@@ -1,14 +1,12 @@
-use chrono::Duration;
-use primitives::sentry::LastApproved;
 use primitives::{
     market::Campaign,
-    sentry::{LastApprovedResponse, HeartbeatValidatorMessage},
+    sentry::{HeartbeatValidatorMessage, LastApproved},
     validator::{Heartbeat, MessageTypes},
     BigNum,
 };
 
-use chrono::{DateTime, Utc};
-use sentry_api::SentryApi;
+use crate::sentry_api::SentryApi;
+use chrono::{DateTime, Duration, Utc};
 
 #[derive(Debug)]
 pub enum Status {
@@ -92,7 +90,7 @@ pub async fn get_status(
     }
 
     // impl: isOffline
-    let offline = is_offline(&messages);
+    let offline = is_offline(&messages.leader_heartbeats, &messages.follower_heartbeats);
 
     // impl: isDisconnected
     let disconnected = is_disconnected();
@@ -137,10 +135,17 @@ fn is_initializing() -> bool {
     todo!()
 }
 
-fn is_offline(messages: &Messages) -> bool {
+// at least one validator doesn't have a recent Heartbeat message
+fn is_offline(leader: &[Heartbeat], follower: &[Heartbeat]) -> bool {
+    // @TODO: Move to configuration
     let recency = Duration::minutes(4);
-    messages.leader_heartbeats.iter().filter(|h| is_date_recent(&recency, &h.timestamp)).count() == 0 ||
-    messages.follower_heartbeats.iter().filter(|h| is_date_recent(&recency, &h.timestamp)).count() == 0
+
+    !leader
+        .iter()
+        .any(|h| is_date_recent(&recency, &h.timestamp))
+        || !follower
+            .iter()
+            .any(|h| is_date_recent(&recency, &h.timestamp))
 }
 
 fn is_date_recent(recency: &Duration, date: &DateTime<Utc>) -> bool {
@@ -167,30 +172,17 @@ fn is_ready() -> bool {
     todo!()
 }
 
-pub mod sentry_api {
+#[cfg(test)]
+mod test {
+    use super::*;
 
-    use primitives::{sentry::LastApprovedResponse, ValidatorDesc};
-    use reqwest::{Client, Error};
-
-    pub struct SentryApi {
-        client: Client,
+    #[test]
+    fn is_offline_no_heartbeats() {
+        assert!(
+            is_offline(&[], &[]),
+            "On empty heartbeast it should be offline!"
+        )
     }
 
-    impl SentryApi {
-        pub fn new() -> Result<Self, Error> {
-            let client = Client::builder().build()?;
-
-            Ok(Self { client })
-        }
-
-        pub async fn get_last_approved(
-            &self,
-            validator: &ValidatorDesc,
-        ) -> Result<LastApprovedResponse, Error> {
-            let url = format!("{}/last-approved?withHeartbeat=true", validator.url);
-            let response = self.client.get(&url).send().await?;
-
-            response.json().await
-        }
-    }
+    // @TODO: test is_offline()
 }

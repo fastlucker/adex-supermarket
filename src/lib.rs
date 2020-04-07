@@ -10,6 +10,7 @@ use slog::{error, info, Logger};
 
 mod cache;
 mod market;
+mod sentry_api;
 mod status;
 
 #[derive(Debug)]
