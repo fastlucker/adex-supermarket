@@ -5,7 +5,7 @@ use hyper::{client::HttpConnector, Body, Client, Method, Request, Response, Serv
 use std::fmt;
 use std::net::SocketAddr;
 
-use http::{uri::Authority, Uri};
+use http::Uri;
 
 mod cache;
 mod market;
@@ -47,24 +47,30 @@ impl From<reqwest::Error> for Error {
     }
 }
 
-pub async fn serve(addr: SocketAddr) -> Result<(), Error> {
+impl From<http::uri::InvalidUri> for Error {
+    fn from(e: http::uri::InvalidUri) -> Error {
+        Error::Http(e.into())
+    }
+}
+
+pub async fn serve(addr: SocketAddr, market_url: String) -> Result<(), Error> {
     use hyper::service::{make_service_fn, service_fn};
 
     let client = Client::new();
-    // @TODO: take this from config or env. variable
-    let market_url = "http://localhost:8005";
 
-    let cache = spawn_fetch_campaigns(market_url).await?;
+    let cache = spawn_fetch_campaigns(&market_url).await?;
 
     // And a MakeService to handle each connection...
     let make_service = make_service_fn(|_| {
         let client = client.clone();
         let cache = cache.clone();
+        let market_url = market_url.clone();
         async move {
             Ok::<_, Error>(service_fn(move |req| {
                 let client = client.clone();
                 let cache = cache.clone();
-                async move { handle(req, cache, client).await }
+                let market_url = market_url.clone();
+                async move { handle(req, cache, client, market_url).await }
             }))
         }
     });
@@ -84,6 +90,7 @@ async fn handle(
     mut req: Request<Body>,
     _cache: Cache,
     client: Client<HttpConnector>,
+    market_uri: String,
 ) -> Result<Response<Body>, Error> {
     match (req.uri().path(), req.method()) {
         ("/units-for-slot", &Method::GET) => {
@@ -99,12 +106,7 @@ async fn handle(
                 .map(ToOwned::to_owned)
                 .unwrap_or_else(|| PathAndQuery::from_static(""));
 
-            let uri = Uri::builder()
-                // @TODO: Move to config or env. variable
-                .scheme("http")
-                .authority(Authority::from_static("localhost:8005"))
-                .path_and_query(path_and_query)
-                .build()?;
+            let uri = format!("{}{}", market_uri, path_and_query).parse::<Uri>()?;
 
             *req.uri_mut() = uri;
 
