@@ -72,6 +72,7 @@ pub async fn serve(addr: SocketAddr, logger: Logger, market_url: String) -> Resu
                 let client = client.clone();
                 let cache = cache.clone();
                 let market_url = market_url.clone();
+                let logger = logger.clone();
                 async move { handle(req, cache, client, logger, market_url).await }
             }))
         }
