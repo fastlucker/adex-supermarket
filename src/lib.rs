@@ -5,7 +5,7 @@ use hyper::{client::HttpConnector, Body, Client, Method, Request, Response, Serv
 use std::fmt;
 use std::net::SocketAddr;
 
-use http::{uri::Authority, Uri};
+use http::Uri;
 
 mod cache;
 mod market;
@@ -15,7 +15,6 @@ pub enum Error {
     Hyper(hyper::Error),
     Http(http::Error),
     Reqwest(reqwest::Error),
-    InvalidUri(http::uri::InvalidUri),
 }
 
 impl fmt::Display for Error {
@@ -24,7 +23,6 @@ impl fmt::Display for Error {
             Error::Hyper(e) => e.fmt(f),
             Error::Http(e) => e.fmt(f),
             Error::Reqwest(e) => e.fmt(f),
-            Error::InvalidUri(e) => e.fmt(f),
         }
     }
 }
@@ -51,7 +49,7 @@ impl From<reqwest::Error> for Error {
 
 impl From<http::uri::InvalidUri> for Error {
     fn from(e: http::uri::InvalidUri) -> Error {
-        Error::InvalidUri(e)
+        Error::Http(e.into())
     }
 }
 
@@ -117,7 +115,7 @@ async fn handle(
     }
 }
 
-async fn spawn_fetch_campaigns(market_uri: &String) -> Result<Cache, reqwest::Error> {
+async fn spawn_fetch_campaigns(market_uri: &str) -> Result<Cache, reqwest::Error> {
     let cache = Cache::initialize(market_uri.into()).await?;
 
     let cache_spawn = cache.clone();
