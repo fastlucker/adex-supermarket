@@ -4,6 +4,7 @@ use primitives::{
     BalancesMap, ChannelId,
 };
 use reqwest::Error;
+use slog::{info, Logger};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -16,11 +17,12 @@ pub struct Cache {
     pub finalized: Cached<HashSet<ChannelId>>,
     pub balance_from_finalized: Cached<BalancesMap>,
     market: Arc<MarketApi>,
+    logger: Logger,
 }
 
 impl Cache {
     const FINALIZED_STATUSES: [StatusType; 3] = [Exhausted, Withdraw, Expired];
-    const NON_FINALIZED_CAMPAIGN_STATUSES: [StatusType; 9] = [
+    const NON_FINALIZED: [StatusType; 9] = [
         Active,
         Ready,
         Pending,
@@ -34,8 +36,8 @@ impl Cache {
     // const UNSOUND: [StatusType; 4] = [Offline, Disconnected, Unhealthy, Invalid];
 
     /// Fetches all the campaigns from the Market and returns the Cache instance
-    pub async fn initialize(market_url: MarketUrl) -> Result<Self, Error> {
-        let market = MarketApi::new(market_url)?;
+    pub async fn initialize(market_url: MarketUrl, logger: Logger) -> Result<Self, Error> {
+        let market = MarketApi::new(market_url, logger.clone())?;
 
         let all_campaigns = market.fetch_campaigns(&Statuses::All).await?;
 
@@ -73,29 +75,48 @@ impl Cache {
             active: Arc::new(RwLock::new(active)),
             finalized: Arc::new(RwLock::new(finalized)),
             balance_from_finalized: Arc::new(RwLock::new(balances)),
+            logger,
         })
     }
 
-    /// Will update the campaigns in the Cache
+    /// Will update the campaigns in the Cache, fetching new campaigns from the Market
     pub async fn update_campaigns(&self) -> Result<(), Error> {
-        let statuses = Statuses::Only(&Self::NON_FINALIZED_CAMPAIGN_STATUSES);
+        let statuses = Statuses::Only(&Self::NON_FINALIZED);
         let fetched_campaigns = self.market.fetch_campaigns(&statuses).await?;
 
         let current_campaigns = self.active.clone();
 
-        let read_campaigns = current_campaigns.read().await;
+        let filtered: Vec<(ChannelId, Campaign)> = {
+            // we need to release the read lock before writing!
+            // Hence the scope of the `filtered` variable
+            let read_campaigns = current_campaigns.read().await;
 
-        let filtered = fetched_campaigns.into_iter().filter_map(|campaign| {
-            // if the key doesn't exist, leave it
-            if !read_campaigns.contains_key(&campaign.channel.id) {
-                Some((campaign.channel.id, campaign))
-            } else {
-                None
-            }
-        });
+            fetched_campaigns
+                .into_iter()
+                .filter_map(|campaign| {
+                    // if the key doesn't exist, leave it
+                    if !read_campaigns.contains_key(&campaign.channel.id) {
+                        Some((campaign.channel.id, campaign))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        };
 
-        {
-            current_campaigns.write().await.extend(filtered);
+        if !filtered.is_empty() {
+            let new_campaigns = filtered.len();
+            let mut campaigns = current_campaigns.write().await;
+            campaigns.extend(filtered.into_iter());
+            info!(
+                &self.logger,
+                "Added {} new campaigns ({:?}) to the Cache", new_campaigns, statuses
+            );
+        } else {
+            info!(
+                &self.logger,
+                "No new campaigns ({:?}) added to Cache", statuses
+            );
         }
 
         Ok(())
