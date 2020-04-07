@@ -4,10 +4,10 @@ use primitives::{
     BalancesMap, ChannelId,
 };
 use reqwest::Error;
+use slog::{info, Logger};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use slog::{Logger, info};
 
 type Cached<T> = Arc<RwLock<T>>;
 
@@ -22,7 +22,17 @@ pub struct Cache {
 
 impl Cache {
     const FINALIZED_STATUSES: [StatusType; 3] = [Exhausted, Withdraw, Expired];
-    const NON_FINALIZED: [StatusType; 9] = [Active, Ready, Pending, Initializing, Waiting, Offline, Disconnected, Unhealthy, Invalid];
+    const NON_FINALIZED: [StatusType; 9] = [
+        Active,
+        Ready,
+        Pending,
+        Initializing,
+        Waiting,
+        Offline,
+        Disconnected,
+        Unhealthy,
+        Invalid,
+    ];
     // const UNSOUND: [StatusType; 4] = [Offline, Disconnected, Unhealthy, Invalid];
 
     /// Fetches all the campaigns from the Market and returns the Cache instance
@@ -32,7 +42,11 @@ impl Cache {
         let all_campaigns = market.fetch_campaigns(&Statuses::All).await?;
 
         let (active, finalized, balances) = all_campaigns.into_iter().fold(
-            (HashMap::default(), HashSet::default(), BalancesMap::default()),
+            (
+                HashMap::default(),
+                HashSet::default(),
+                BalancesMap::default(),
+            ),
             |(mut active, mut finalized, mut balances), campaign: Campaign| {
                 if Self::FINALIZED_STATUSES.contains(&campaign.status.status_type) {
                     // we don't care if the campaign was already in the set
@@ -76,25 +90,33 @@ impl Cache {
             // we need to release the read lock before writing!
             // Hence the scope of the `filtered` variable
             let read_campaigns = current_campaigns.read().await;
-        
-            fetched_campaigns.into_iter().filter_map(|campaign| {
-                // if the key doesn't exist, leave it
-                if !read_campaigns.contains_key(&campaign.channel.id) {
-                    Some((campaign.channel.id, campaign))
-                } else {
-                    None
-                }
-            }).collect()
+
+            fetched_campaigns
+                .into_iter()
+                .filter_map(|campaign| {
+                    // if the key doesn't exist, leave it
+                    if !read_campaigns.contains_key(&campaign.channel.id) {
+                        Some((campaign.channel.id, campaign))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
         };
 
         if !filtered.is_empty() {
             let new_campaigns = filtered.len();
             let mut campaigns = current_campaigns.write().await;
             campaigns.extend(filtered.into_iter());
-            info!(&self.logger, "Added {} new campaigns ({:?}) to the Cache", new_campaigns, statuses);
+            info!(
+                &self.logger,
+                "Added {} new campaigns ({:?}) to the Cache", new_campaigns, statuses
+            );
         } else {
-            info!(&self.logger, "No new campaigns ({:?}) added to Cache", statuses);
-
+            info!(
+                &self.logger,
+                "No new campaigns ({:?}) added to Cache", statuses
+            );
         }
 
         Ok(())

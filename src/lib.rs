@@ -6,7 +6,7 @@ use std::fmt;
 use std::net::SocketAddr;
 
 use http::{uri::Authority, Uri};
-use slog::{Logger, error, info};
+use slog::{error, info, Logger};
 
 mod cache;
 mod market;
@@ -113,7 +113,6 @@ async fn handle(
 
             *req.uri_mut() = uri;
 
-
             let proxy_response = client.request(req).await?;
 
             info!(&logger, "Proxied request to market");
@@ -125,7 +124,10 @@ async fn handle(
 
 async fn spawn_fetch_campaigns(market_uri: &str, logger: Logger) -> Result<Cache, reqwest::Error> {
     let cache = Cache::initialize(market_uri.into(), logger.clone()).await?;
-    info!(&logger, "Campaigns are fetched from market & Cache is initialized...");
+    info!(
+        &logger,
+        "Campaigns are fetched from market & Cache is initialized..."
+    );
 
     let cache_spawn = cache.clone();
     // Every few minutes, we will get the non-finalized from the market,
