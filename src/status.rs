@@ -110,7 +110,7 @@ pub async fn get_status(
         });
     }
 
-    // isAtive & isReady (including both Ready & Waiting)
+    // isActive & isReady (we don't need to distinguish between Active & Ready)
     if is_active() && is_ready() {
         Ok(Status::Active)
     } else {
