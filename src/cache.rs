@@ -43,7 +43,7 @@ impl Cache {
     /// Fetches all the campaigns from the Market and returns the Cache instance
     pub async fn initialize(market_url: MarketUrl, logger: Logger) -> Result<Self, Error> {
         let market = MarketApi::new(market_url, logger.clone())?;
-        let sentry_api = SentryApi::new()?;
+        let sentry = SentryApi::new()?;
 
         let all_campaigns = market.fetch_campaigns(&Statuses::All).await?;
 
@@ -82,7 +82,7 @@ impl Cache {
             finalized: Arc::new(RwLock::new(finalized)),
             balance_from_finalized: Arc::new(RwLock::new(balances)),
             logger,
-            sentry: sentry_api,
+            sentry: sentry,
         })
     }
 

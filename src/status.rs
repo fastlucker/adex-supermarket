@@ -47,6 +47,10 @@ pub enum IsFinalized {
     },
 }
 
+/// # Finalized if:
+/// - Is campaign expired?
+/// - Is in withdraw period?
+/// - Is campaign exhausted?
 pub async fn is_finalized(sentry: &SentryApi, campaign: &Campaign) -> Result<IsFinalized, Error> {
     // Is campaign expired?
     if Utc::now() > campaign.channel.valid_until {
@@ -58,7 +62,7 @@ pub async fn is_finalized(sentry: &SentryApi, campaign: &Campaign) -> Result<IsF
         });
     }
 
-    // impl: Is in withdraw period?
+    // Is in withdraw period?
     if Utc::now() > campaign.channel.spec.withdraw_period_start {
         let balances = fetch_balances(&sentry, &campaign).await?;
 
