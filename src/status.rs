@@ -112,9 +112,7 @@ pub async fn is_finalized(sentry: &SentryApi, campaign: &Campaign) -> Result<IsF
 pub async fn get_status(sentry: &SentryApi, campaign: &Campaign) -> Result<Status, Error> {
     // continue only if Campaign is not Finalized
     let leader_la = match is_finalized(sentry, campaign).await? {
-        IsFinalized::Yes { reason, balances } => {
-            return Ok(Status::Finalized(reason, balances))
-        }
+        IsFinalized::Yes { reason, balances } => return Ok(Status::Finalized(reason, balances)),
         IsFinalized::No { leader } => leader,
     };
 

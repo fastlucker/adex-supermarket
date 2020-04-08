@@ -140,13 +140,13 @@ impl Cache {
 
                 for (publisher, value) in balances {
                     finalized_balances
-                            .entry(publisher)
-                            .and_modify(|current_balance| *current_balance += &value)
-                            .or_insert(value);
+                        .entry(publisher)
+                        .and_modify(|current_balance| *current_balance += &value)
+                        .or_insert(value);
                 }
 
                 true
-            },
+            }
             _ => false,
         };
 
