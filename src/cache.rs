@@ -82,7 +82,7 @@ impl Cache {
             finalized: Arc::new(RwLock::new(finalized)),
             balance_from_finalized: Arc::new(RwLock::new(balances)),
             logger,
-            sentry: sentry,
+            sentry,
         })
     }
 
