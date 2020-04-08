@@ -2,8 +2,8 @@ use crate::sentry_api::SentryApi;
 use chrono::{DateTime, Duration, Utc};
 use primitives::{
     market::Campaign,
-    sentry::{HeartbeatValidatorMessage, LastApproved, LastApprovedResponse},
-    validator::{Heartbeat, MessageTypes},
+    sentry::{HeartbeatValidatorMessage, LastApproved, LastApprovedResponse },
+    validator::{Heartbeat, MessageTypes, NewState, ApproveState},
     BalancesMap, BigNum,
 };
 use reqwest::Error;
@@ -35,6 +35,8 @@ struct Messages {
     last_approved: Option<LastApproved>,
     leader_heartbeats: Vec<Heartbeat>,
     follower_heartbeats: Vec<Heartbeat>,
+    leader_new_state: Vec<NewState>,
+    follower_approve_state: Vec<ApproveState>,
 }
 
 pub enum IsFinalized {
@@ -124,10 +126,12 @@ pub async fn get_status(sentry: &SentryApi, campaign: &Campaign) -> Result<Statu
         last_approved: leader_la.last_approved,
         leader_heartbeats: get_heartbeats(leader_la.heartbeats),
         follower_heartbeats: get_heartbeats(follower_la.heartbeats),
+        leader_new_state: get_new_state(leader_la.last_approved),
+        follower_approve_state: get_approve_state(follower_la.last_approved),
     };
 
     // impl: isInitializing
-    if is_initializing() {
+    if is_initializing(&messages.leader_heartbeats, &messages.follower_heartbeats, &messages.leader_new_state, &messages.follower_approve_state) {
         return Ok(Status::Initializing);
     }
 
@@ -191,8 +195,35 @@ fn get_heartbeats(heartbeats: Option<Vec<HeartbeatValidatorMessage>>) -> Vec<Hea
     }
 }
 
-fn is_initializing() -> bool {
-    todo!()
+fn get_new_state(last_approved: Option<LastApproved>) -> Vec<NewState> {
+
+    match last_approved {
+        Some(last_approved) => last_approved.new_state
+            .into_iter()
+            .filter_map(|new_state| match new_state.msg {
+                MessageTypes::NewState(new_state) => Some(new_state),
+                _ => None,
+            })
+            .collect(),
+        None => Default::default(),
+    }
+}
+
+fn get_approve_state(last_approved: Option<LastApproved>) -> Vec<ApproveState> {
+    match last_approved {
+        Some(last_approved) => last_approved.approve_state
+            .into_iter()
+            .filter_map(|approve_state| match approve_state.msg {
+                MessageTypes::ApproveState(approve_state) => Some(approve_state),
+                _ => None,
+            })
+            .collect(),
+        None => Default::default(),
+    }
+}
+
+fn is_initializing(leader: &[Heartbeat], follower: &[Heartbeat], new_state: &[NewState], approve_state: &[ApproveState]) -> bool {
+    (leader.len() as i32 == 0 && new_state.len() as i32 == 0) || (follower.len() as i32 == 0 && approve_state.len() as i32 == 0)
 }
 
 // at least one validator doesn't have a recent Heartbeat message
@@ -209,7 +240,8 @@ fn is_offline(leader: &[Heartbeat], follower: &[Heartbeat]) -> bool {
 }
 
 fn is_date_recent(recency: &Duration, date: &DateTime<Utc>) -> bool {
-    todo!()
+    let time_passed = Utc::now().signed_duration_since(date.clone());
+    time_passed <= recency.clone()
 }
 
 fn is_disconnected() -> bool {
@@ -244,5 +276,35 @@ mod test {
         )
     }
 
+    #[test]
+    fn now_date_is_recent() {
+        let now = Utc::now();
+        let recency = Duration::minutes(4);
+        assert!(
+            is_date_recent(&recency, &now),
+            "The present moment is a recent date!"
+        )
+    }
+
+    #[test]
+    fn slightly_past_is_recent() {
+        let recency = Duration::minutes(4);
+        let on_the_edge = Utc::now().checked_sub_signed(Duration::minutes(3)).unwrap();
+        assert!(
+            is_date_recent(&recency, &on_the_edge),
+            "When date is just as old as the recency limit, it still counts as recent"
+        )
+    }
+
+    #[test]
+    fn old_date_is_not_recent() {
+        let recency = Duration::minutes(4);
+        let past = Utc::now().checked_sub_signed(Duration::minutes(10)).unwrap();
+        assert_eq!(
+            is_date_recent(&recency, &past),
+            false,
+            "Date older than the recency limit is not recent"
+        )
+    }
     // @TODO: test is_offline()
 }
