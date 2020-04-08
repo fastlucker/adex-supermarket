@@ -160,6 +160,7 @@ pub async fn get_status(sentry: &SentryApi, campaign: &Campaign) -> Result<Statu
     }
 }
 
+/// Calls SentryApi for the Leader's LastApproved NewState and returns the NewState Balance
 async fn fetch_balances(sentry: &SentryApi, campaign: &Campaign) -> Result<BalancesMap, Error> {
     let leader_la = sentry
         .get_last_approved(&campaign.channel.spec.validators.leader())

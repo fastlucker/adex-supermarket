@@ -6,6 +6,7 @@ pub struct SentryApi {
     client: Client,
 }
 
+/// SentryApi talks directly to Sentry
 impl SentryApi {
     pub fn new() -> Result<Self, Error> {
         let client = Client::builder().build()?;
