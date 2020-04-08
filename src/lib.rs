@@ -13,6 +13,8 @@ mod market;
 mod sentry_api;
 mod status;
 
+pub use sentry_api::SentryApi;
+
 #[derive(Debug)]
 pub enum Error {
     Hyper(hyper::Error),

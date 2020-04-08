@@ -1,6 +1,7 @@
 use primitives::{sentry::LastApprovedResponse, ValidatorDesc};
 use reqwest::{Client, Error};
 
+#[derive(Debug, Clone)]
 pub struct SentryApi {
     client: Client,
 }

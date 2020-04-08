@@ -1,12 +1,12 @@
-use primitives::{
-    market::Campaign,
-    sentry::{HeartbeatValidatorMessage, LastApproved},
-    validator::{Heartbeat, MessageTypes},
-    BigNum,
-};
-
 use crate::sentry_api::SentryApi;
 use chrono::{DateTime, Duration, Utc};
+use primitives::{
+    market::Campaign,
+    sentry::{HeartbeatValidatorMessage, LastApproved, LastApprovedResponse},
+    validator::{Heartbeat, MessageTypes},
+    BalancesMap, BigNum,
+};
+use reqwest::Error;
 
 #[derive(Debug)]
 pub enum Status {
@@ -15,7 +15,7 @@ pub enum Status {
     Pending,
     Initializing,
     Waiting,
-    Finalized(Finalized),
+    Finalized(Finalized, BalancesMap),
     Unsound {
         disconnected: bool,
         offline: bool,
@@ -37,23 +37,38 @@ struct Messages {
     follower_heartbeats: Vec<Heartbeat>,
 }
 
-pub async fn get_status(
-    sentry: &SentryApi,
-    campaign: &Campaign,
-) -> Result<Status, Box<dyn std::error::Error>> {
+pub enum IsFinalized {
+    Yes {
+        reason: Finalized,
+        balances: BalancesMap,
+    },
+    No {
+        leader: LastApprovedResponse,
+    },
+}
+
+pub async fn is_finalized(sentry: &SentryApi, campaign: &Campaign) -> Result<IsFinalized, Error> {
     // Is campaign expired?
     if Utc::now() > campaign.channel.valid_until {
-        return Ok(Status::Finalized(Finalized::Expired));
+        let balances = fetch_balances(&sentry, &campaign).await?;
+
+        return Ok(IsFinalized::Yes {
+            reason: Finalized::Expired,
+            balances,
+        });
     }
 
     // impl: Is in withdraw period?
     if Utc::now() > campaign.channel.spec.withdraw_period_start {
-        return Ok(Status::Finalized(Finalized::Withdraw));
+        let balances = fetch_balances(&sentry, &campaign).await?;
+
+        return Ok(IsFinalized::Yes {
+            reason: Finalized::Withdraw,
+            balances,
+        });
     }
 
     let leader = campaign.channel.spec.validators.leader();
-    let follower = campaign.channel.spec.validators.follower();
-
     let leader_la = sentry.get_last_approved(&leader).await?;
 
     let total_balances: BigNum = leader_la
@@ -71,10 +86,35 @@ pub async fn get_status(
 
     // Is campaign exhausted?
     if total_balances >= campaign.channel.deposit_amount {
-        return Ok(Status::Finalized(Finalized::Exhausted));
+        // get balances from the Leader response
+        let balances = leader_la
+            .last_approved
+            .and_then(|last_approved| last_approved.new_state)
+            .and_then(|new_state| match new_state.msg {
+                MessageTypes::NewState(new_state) => Some(new_state.balances),
+                _ => None,
+            })
+            .unwrap_or_default();
+
+        return Ok(IsFinalized::Yes {
+            reason: Finalized::Exhausted,
+            balances,
+        });
     }
 
-    // don't fetch follower, if campaign is exhausted
+    Ok(IsFinalized::No { leader: leader_la })
+}
+
+pub async fn get_status(sentry: &SentryApi, campaign: &Campaign) -> Result<Status, Error> {
+    // continue only if Campaign is not Finalized
+    let leader_la = match is_finalized(sentry, campaign).await? {
+        IsFinalized::Yes { reason, balances } => {
+            return Ok(Status::Finalized(reason, balances))
+        }
+        IsFinalized::No { leader } => leader,
+    };
+
+    let follower = campaign.channel.spec.validators.follower();
     let follower_la = sentry.get_last_approved(&follower).await?;
 
     // setup the messages for the checks
@@ -110,12 +150,29 @@ pub async fn get_status(
         });
     }
 
-    // isActive & isReady (we don't need to distinguish between Active & Ready)
+    // isActive & isReady (we don't need distinguish between Active & Ready here)
     if is_active() && is_ready() {
         Ok(Status::Active)
     } else {
         Ok(Status::Waiting)
     }
+}
+
+async fn fetch_balances(sentry: &SentryApi, campaign: &Campaign) -> Result<BalancesMap, Error> {
+    let leader_la = sentry
+        .get_last_approved(&campaign.channel.spec.validators.leader())
+        .await?;
+
+    let balances = leader_la
+        .last_approved
+        .and_then(|last_approved| last_approved.new_state)
+        .and_then(|new_state| match new_state.msg {
+            MessageTypes::NewState(new_state) => Some(new_state.balances),
+            _ => None,
+        })
+        .unwrap_or_default();
+
+    Ok(balances)
 }
 
 fn get_heartbeats(heartbeats: Option<Vec<HeartbeatValidatorMessage>>) -> Vec<Heartbeat> {
