@@ -37,6 +37,7 @@ struct Messages {
     follower_heartbeats: Vec<Heartbeat>,
     leader_new_state: Vec<NewState>,
     follower_approve_state: Vec<ApproveState>,
+    follower_hb_from_leader: Vec<Heartbeat>,
 }
 
 pub enum IsFinalized {
@@ -129,6 +130,7 @@ pub async fn get_status(sentry: &SentryApi, campaign: &Campaign) -> Result<Statu
         follower_heartbeats: get_heartbeats(follower_la.heartbeats),
         leader_new_state: get_new_state(leader_la.last_approved),
         follower_approve_state: get_approve_state(follower_la.last_approved),
+        follower_hb_from_leader: get_hb_by_validator(&leader, follower_la.heartbeats),
     };
 
     // impl: isInitializing
@@ -140,7 +142,7 @@ pub async fn get_status(sentry: &SentryApi, campaign: &Campaign) -> Result<Statu
     let offline = is_offline(&messages.leader_heartbeats, &messages.follower_heartbeats);
 
     // impl: isDisconnected
-    let disconnected = is_disconnected(&messages.leader_heartbeats, &messages.follower_heartbeats, &leader);
+    let disconnected = is_disconnected(&messages.leader_heartbeats, &messages.follower_heartbeats, &messages.follower_hb_from_leader);
 
     // impl: isInvalid
     let rejected_state = is_rejected_state();
@@ -196,7 +198,7 @@ fn get_heartbeats(heartbeats: Option<Vec<HeartbeatValidatorMessage>>) -> Vec<Hea
     }
 }
 
-fn hb_by_validator(validator: &ValidatorDesc, heartbeat: &Heartbeat) -> bool {
+fn is_hb_by_validator(validator: &ValidatorDesc, heartbeat: &HeartbeatValidatorMessage) -> bool {
     heartbeat.from == validator.id
 }
 
@@ -219,6 +221,25 @@ fn get_approve_state(last_approved: Option<LastApproved>) -> Vec<ApproveState> {
             .into_iter()
             .filter_map(|approve_state| match approve_state.msg {
                 MessageTypes::ApproveState(approve_state) => Some(approve_state),
+                _ => None,
+            })
+            .collect(),
+        None => Default::default(),
+    }
+}
+
+fn get_hb_by_validator(validator: &ValidatorDesc, heartbeats: Option<Vec<HeartbeatValidatorMessage>>) -> Vec<Heartbeat> {
+    match heartbeats {
+        Some(heartbeats) => heartbeats
+            .into_iter()
+            .filter_map(|h| match h.msg {
+                MessageTypes::Heartbeat(h_msg) => {
+                    if is_hb_by_validator(&validator, &h) {
+                        Some(h_msg)
+                    } else {
+                        None
+                    }
+                },
                 _ => None,
             })
             .collect(),
@@ -250,30 +271,32 @@ fn is_date_recent(recency: &Duration, date: &DateTime<Utc>) -> bool {
 }
 
 // validators have recent Heartbeat messages, but they don't seem to be propagating messages between one another (the majority of Heartbeats are not found on both validators)
-fn is_disconnected(leader_hb: &[Heartbeat], follower_hb: &[Heartbeat], leader_validator: &ValidatorDesc) -> bool {
+fn is_disconnected(leader_hb: &[Heartbeat], follower_hb: &[Heartbeat], follower_hb_from_leader: &[Heartbeat]) -> bool {
     let recency = Duration::minutes(4);
 
-    let follower_recent: Vec<&Heartbeat> = follower_hb
-        .iter()
+    let follower_hb = follower_hb
+        .into_iter()
         .filter_map(|h| {
             if is_date_recent(&recency, &h.timestamp) {
                 Some(h)
             } else {
                 None
-            }})
-        .collect();
-    let follower_hb_from_leader_val: Vec<&Heartbeat> = leader_hb
-        .iter()
-        .filter_map(|h| {
-             if is_date_recent(&recency, &h.timestamp) && hb_by_validator(leader_validator, h) {
-                 Some(h)
-             } else {
-                 None
-             }
+            }
         })
-        .collect();
+        .count();
 
-        follower_recent.len() > 0 && follower_hb_from_leader_val.len() > 0
+    let follower_hb_from_leader = follower_hb_from_leader
+        .into_iter()
+        .filter_map(|h| {
+            if is_date_recent(&recency, &h.timestamp) {
+                Some(h)
+            } else {
+                None
+            }
+        })
+        .count();
+
+    follower_hb > 0 && follower_hb_from_leader > 0
 }
 
 fn is_rejected_state() -> bool {
