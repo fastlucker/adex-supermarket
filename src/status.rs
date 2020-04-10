@@ -119,18 +119,23 @@ pub async fn get_status(sentry: &SentryApi, campaign: &Campaign) -> Result<Statu
         IsFinalized::Yes { reason, balances } => return Ok(Status::Finalized(reason, balances)),
         IsFinalized::No { leader } => leader,
     };
+    let leader_la_clone = match is_finalized(sentry, campaign).await? {
+        IsFinalized::Yes { reason, balances } => return Ok(Status::Finalized(reason, balances)),
+        IsFinalized::No { leader } => leader,
+    };
 
     let follower = campaign.channel.spec.validators.follower();
     let follower_la = sentry.get_last_approved(&follower).await?;
+    let follower_la_clone = sentry.get_last_approved(&follower).await?;
 
     // setup the messages for the checks
     let messages = Messages {
         last_approved: leader_la.last_approved,
         leader_heartbeats: get_heartbeats(leader_la.heartbeats),
         follower_heartbeats: get_heartbeats(follower_la.heartbeats),
-        leader_new_state: get_new_state(leader_la.last_approved),
+        leader_new_state: get_new_state(leader_la_clone.last_approved),
         follower_approve_state: get_approve_state(follower_la.last_approved),
-        follower_hb_from_leader: get_hb_by_validator(&leader, follower_la.heartbeats),
+        follower_hb_from_leader: get_hb_by_validator(&leader, follower_la_clone.heartbeats),
     };
 
     // impl: isInitializing
@@ -142,7 +147,7 @@ pub async fn get_status(sentry: &SentryApi, campaign: &Campaign) -> Result<Statu
     let offline = is_offline(&messages.leader_heartbeats, &messages.follower_heartbeats);
 
     // impl: isDisconnected
-    let disconnected = is_disconnected(&messages.leader_heartbeats, &messages.follower_heartbeats, &messages.follower_hb_from_leader);
+    let disconnected = is_disconnected(&messages.follower_heartbeats, &messages.follower_hb_from_leader);
 
     // impl: isInvalid
     let rejected_state = is_rejected_state();
@@ -232,15 +237,15 @@ fn get_hb_by_validator(validator: &ValidatorDesc, heartbeats: Option<Vec<Heartbe
     match heartbeats {
         Some(heartbeats) => heartbeats
             .into_iter()
-            .filter_map(|h| match h.msg {
-                MessageTypes::Heartbeat(h_msg) => {
-                    if is_hb_by_validator(&validator, &h) {
-                        Some(h_msg)
-                    } else {
-                        None
+            .filter_map(|h| {
+                if is_hb_by_validator(&validator, &h) {
+                    match h.msg {
+                        MessageTypes::Heartbeat(h) => Some(h),
+                        _ => None,
                     }
-                },
-                _ => None,
+                } else {
+                    None
+                }
             })
             .collect(),
         None => Default::default(),
@@ -271,7 +276,7 @@ fn is_date_recent(recency: &Duration, date: &DateTime<Utc>) -> bool {
 }
 
 // validators have recent Heartbeat messages, but they don't seem to be propagating messages between one another (the majority of Heartbeats are not found on both validators)
-fn is_disconnected(leader_hb: &[Heartbeat], follower_hb: &[Heartbeat], follower_hb_from_leader: &[Heartbeat]) -> bool {
+fn is_disconnected(follower_hb: &[Heartbeat], follower_hb_from_leader: &[Heartbeat]) -> bool {
     let recency = Duration::minutes(4);
 
     let follower_hb = follower_hb
