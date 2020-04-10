@@ -332,6 +332,7 @@ mod test {
         )
     }
 
+    // is_date_recent()
     #[test]
     fn now_date_is_recent() {
         let now = Utc::now();
@@ -362,5 +363,48 @@ mod test {
             "Date older than the recency limit is not recent"
         )
     }
+
+    // is_initializing()
+    #[test]
+    fn two_empty_message_arrays() {
+        todo!()
+    }
+
+    #[test]
+    fn first_message_arr_is_empty() {
+        todo!()
+    }
+
+    #[test]
+    fn second_message_arr_is_empty() {
+        todo!()
+    }
+
+    #[test]
+    fn both_arrays_have_messages() {
+        todo!()
+    }
+
+    // is_disconnected()
+    #[test]
+    fn no_recent_hbs_on_both_sides() {
+        todo!()
+    }
+
+    #[test]
+    fn no_recent_follower_hbs() {
+        todo!()
+    }
+
+    #[test]
+    fn no_recent_leader_hb_on_follower_validator() {
+        todo!()
+    }
+
+    #[test]
+    fn recent_hbs_on_both_arrays() {
+        todo!()
+    }
+
     // @TODO: test is_offline()
 }
