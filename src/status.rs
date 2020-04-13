@@ -262,13 +262,13 @@ async fn fetch_balances(sentry: &SentryApi, channel: &Channel) -> Result<Balance
     Ok(balances)
 }
 
-// there are no messages at all for at least one validator
+/// there are no messages at all for at least one validator
 fn is_initializing(messages: &Messages) -> bool {
     (messages.has_leader_hb() && messages.has_leader_new_state())
         || (messages.has_follower_hb() && messages.has_follower_approve_state())
 }
 
-// at least one validator doesn't have a recent Heartbeat message
+/// at least one validator doesn't have a recent Heartbeat message
 fn is_offline(messages: &Messages) -> bool {
     !messages.has_recent_leader_hb() || !messages.has_recent_follower_hb()
 }
@@ -277,7 +277,7 @@ fn is_date_recent(recency: Duration, date: &DateTime<Utc>) -> bool {
     date >= &(Utc::now() - recency)
 }
 
-// validators have recent Heartbeat messages, but they don't seem to be propagating messages between one another (the majority of Heartbeats are not found on both validators)
+/// validators have recent Heartbeat messages, but they don't seem to be propagating messages between one another (the majority of Heartbeats are not found on both validators)
 fn is_disconnected(channel: &Channel, messages: &Messages) -> bool {
     let follower = &channel.spec.validators.follower().id;
 
