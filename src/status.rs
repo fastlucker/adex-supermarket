@@ -32,12 +32,10 @@ pub enum Finalized {
 }
 
 struct Messages {
-    last_approved: Option<LastApproved>,
+    leader_last_approved: Option<LastApproved>,
+    follower_last_approved: Option<LastApproved>,
     leader_heartbeats: Vec<Heartbeat>,
     follower_heartbeats: Vec<Heartbeat>,
-    leader_new_state: Vec<NewState>,
-    follower_approve_state: Vec<ApproveState>,
-    follower_hb_from_leader: Vec<Heartbeat>,
 }
 
 pub enum IsFinalized {
@@ -119,27 +117,20 @@ pub async fn get_status(sentry: &SentryApi, campaign: &Campaign) -> Result<Statu
         IsFinalized::Yes { reason, balances } => return Ok(Status::Finalized(reason, balances)),
         IsFinalized::No { leader } => leader,
     };
-    let leader_la_clone = match is_finalized(sentry, campaign).await? {
-        IsFinalized::Yes { reason, balances } => return Ok(Status::Finalized(reason, balances)),
-        IsFinalized::No { leader } => leader,
-    };
 
     let follower = campaign.channel.spec.validators.follower();
     let follower_la = sentry.get_last_approved(&follower).await?;
-    let follower_la_clone = sentry.get_last_approved(&follower).await?;
 
     // setup the messages for the checks
     let messages = Messages {
-        last_approved: leader_la.last_approved,
+        leader_last_approved: leader_la.last_approved,
+        follower_last_approved: follower_la.last_approved,
         leader_heartbeats: get_heartbeats(leader_la.heartbeats),
         follower_heartbeats: get_heartbeats(follower_la.heartbeats),
-        leader_new_state: get_new_state(leader_la_clone.last_approved),
-        follower_approve_state: get_approve_state(follower_la.last_approved),
-        follower_hb_from_leader: get_hb_by_validator(&leader, follower_la_clone.heartbeats),
     };
 
     // impl: isInitializing
-    if is_initializing(&messages.leader_heartbeats, &messages.follower_heartbeats, &messages.leader_new_state, &messages.follower_approve_state) {
+    if is_initializing(&messages.leader_heartbeats, &messages.follower_heartbeats, &messages.leader_last_approved, &messages.follower_last_approved) {
         return Ok(Status::Initializing);
     }
 
@@ -147,7 +138,7 @@ pub async fn get_status(sentry: &SentryApi, campaign: &Campaign) -> Result<Statu
     let offline = is_offline(&messages.leader_heartbeats, &messages.follower_heartbeats);
 
     // impl: isDisconnected
-    let disconnected = is_disconnected(&messages.follower_heartbeats, &messages.follower_hb_from_leader);
+    let disconnected = is_disconnected(&messages.follower_heartbeats, &leader);
 
     // impl: isInvalid
     let rejected_state = is_rejected_state();
@@ -207,7 +198,7 @@ fn is_hb_by_validator(validator: &ValidatorDesc, heartbeat: &HeartbeatValidatorM
     heartbeat.from == validator.id
 }
 
-fn get_new_state(last_approved: Option<LastApproved>) -> Vec<NewState> {
+fn get_new_state(last_approved: &Option<LastApproved>) -> Vec<NewState> {
     match last_approved {
         Some(last_approved) => last_approved.new_state
             .into_iter()
@@ -220,7 +211,7 @@ fn get_new_state(last_approved: Option<LastApproved>) -> Vec<NewState> {
     }
 }
 
-fn get_approve_state(last_approved: Option<LastApproved>) -> Vec<ApproveState> {
+fn get_approve_state(last_approved: &Option<LastApproved>) -> Vec<ApproveState> {
     match last_approved {
         Some(last_approved) => last_approved.approve_state
             .into_iter()
@@ -233,28 +224,25 @@ fn get_approve_state(last_approved: Option<LastApproved>) -> Vec<ApproveState> {
     }
 }
 
-fn get_hb_by_validator(validator: &ValidatorDesc, heartbeats: Option<Vec<HeartbeatValidatorMessage>>) -> Vec<Heartbeat> {
-    match heartbeats {
-        Some(heartbeats) => heartbeats
-            .into_iter()
-            .filter_map(|h| {
-                if is_hb_by_validator(&validator, &h) {
-                    match h.msg {
-                        MessageTypes::Heartbeat(h) => Some(h),
-                        _ => None,
-                    }
-                } else {
-                    None
+fn get_hb_by_validator(validator: &ValidatorDesc, heartbeats: &[Heartbeat]) -> Vec<Heartbeat> {
+    heartbeats
+        .into_iter()
+        .filter_map(|h| {
+            if is_hb_by_validator(&validator, &h) {
+                match h.msg {
+                    MessageTypes::Heartbeat(h) => Some(h),
+                    _ => None,
                 }
-            })
-            .collect(),
-        None => Default::default(),
-    }
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 // there are no messages at all for at least one validator
-fn is_initializing(leader: &[Heartbeat], follower: &[Heartbeat], new_state: &[NewState], approve_state: &[ApproveState]) -> bool {
-    (leader.len() as i32 == 0 && new_state.len() as i32 == 0) || (follower.len() as i32 == 0 && approve_state.len() as i32 == 0)
+fn is_initializing(leader: &[Heartbeat], follower: &[Heartbeat], leader_la: &Option<LastApproved>, follower_la: &Option<LastApproved>) -> bool {
+    (leader.is_empty() && get_new_state(leader_la).is_empty()) || (follower.is_empty() && get_approve_state(follower_la).is_empty())
 }
 
 // at least one validator doesn't have a recent Heartbeat message
@@ -271,15 +259,14 @@ fn is_offline(leader: &[Heartbeat], follower: &[Heartbeat]) -> bool {
 }
 
 fn is_date_recent(recency: &Duration, date: &DateTime<Utc>) -> bool {
-    let time_passed = Utc::now().signed_duration_since(date.clone());
-    time_passed <= recency.clone()
+    date >= &(Utc::now() - *recency)
 }
 
 // validators have recent Heartbeat messages, but they don't seem to be propagating messages between one another (the majority of Heartbeats are not found on both validators)
-fn is_disconnected(follower_hb: &[Heartbeat], follower_hb_from_leader: &[Heartbeat]) -> bool {
+fn is_disconnected(follower_hb: &[Heartbeat], leader: &ValidatorDesc) -> bool {
     let recency = Duration::minutes(4);
 
-    let follower_hb = follower_hb
+    let recent_follower_hb = follower_hb
         .into_iter()
         .filter_map(|h| {
             if is_date_recent(&recency, &h.timestamp) {
@@ -290,7 +277,7 @@ fn is_disconnected(follower_hb: &[Heartbeat], follower_hb_from_leader: &[Heartbe
         })
         .count();
 
-    let follower_hb_from_leader = follower_hb_from_leader
+    let recent_follower_hb_from_leader = get_hb_by_validator(&leader, follower_hb)
         .into_iter()
         .filter_map(|h| {
             if is_date_recent(&recency, &h.timestamp) {
@@ -301,7 +288,7 @@ fn is_disconnected(follower_hb: &[Heartbeat], follower_hb_from_leader: &[Heartbe
         })
         .count();
 
-    follower_hb > 0 && follower_hb_from_leader > 0
+        recent_follower_hb > 0 && recent_follower_hb_from_leader > 0
 }
 
 fn is_rejected_state() -> bool {
@@ -356,7 +343,7 @@ mod test {
     #[test]
     fn old_date_is_not_recent() {
         let recency = Duration::minutes(4);
-        let past = Utc::now().checked_sub_signed(Duration::minutes(10)).unwrap();
+        let past = Utc::now() - Duration::minutes(10);
         assert_eq!(
             is_date_recent(&recency, &past),
             false,
@@ -367,7 +354,16 @@ mod test {
     // is_initializing()
     #[test]
     fn two_empty_message_arrays() {
-        todo!()
+        // let leader_hbs: [Heartbeat; 0] = [];
+        // let follower_hbs: [Heartbeat; 0] = [];
+        // let new_state_msgs: [NewState; 0] = [];
+        // let approve_state_msgs: [ApproveState; 0] = [];
+
+        // assert_eq!(
+        //     is_initializing(&leader_hbs, &follower_hbs, &new_state_msgs, &approve_state_msgs),
+        //     true,
+        //     "Both leader heartbeats + newstate and follower heatbeats + approvestate pairs are empty arrays"
+        // )
     }
 
     #[test]
