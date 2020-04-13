@@ -24,7 +24,7 @@ pub enum Status {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Finalized {
     Expired,
     Exhausted,
@@ -37,6 +37,7 @@ struct Messages {
     follower_heartbeats: Vec<Heartbeat>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum IsFinalized {
     Yes {
         reason: Finalized,
