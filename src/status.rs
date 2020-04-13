@@ -1,10 +1,9 @@
 use crate::sentry_api::SentryApi;
 use chrono::{DateTime, Duration, Utc};
 use primitives::{
-    market::Campaign,
     sentry::{HeartbeatValidatorMessage, LastApproved, LastApprovedResponse},
     validator::{Heartbeat, MessageTypes},
-    BalancesMap, BigNum,
+    BalancesMap, BigNum, Channel,
 };
 use reqwest::Error;
 
@@ -24,7 +23,7 @@ pub enum Status {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Finalized {
     Expired,
     Exhausted,
@@ -37,24 +36,25 @@ struct Messages {
     follower_heartbeats: Vec<Heartbeat>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum IsFinalized {
     Yes {
         reason: Finalized,
         balances: BalancesMap,
     },
     No {
-        leader: LastApprovedResponse,
+        leader: Box<LastApprovedResponse>,
     },
 }
 
 /// # Finalized if:
-/// - Is campaign expired?
+/// - Is Channel expired?
 /// - Is in withdraw period?
-/// - Is campaign exhausted?
-pub async fn is_finalized(sentry: &SentryApi, campaign: &Campaign) -> Result<IsFinalized, Error> {
-    // Is campaign expired?
-    if Utc::now() > campaign.channel.valid_until {
-        let balances = fetch_balances(&sentry, &campaign).await?;
+/// - Is Channel exhausted?
+pub async fn is_finalized(sentry: &SentryApi, channel: &Channel) -> Result<IsFinalized, Error> {
+    // Is Channel expired?
+    if Utc::now() > channel.valid_until {
+        let balances = fetch_balances(&sentry, &channel).await?;
 
         return Ok(IsFinalized::Yes {
             reason: Finalized::Expired,
@@ -63,8 +63,8 @@ pub async fn is_finalized(sentry: &SentryApi, campaign: &Campaign) -> Result<IsF
     }
 
     // Is in withdraw period?
-    if Utc::now() > campaign.channel.spec.withdraw_period_start {
-        let balances = fetch_balances(&sentry, &campaign).await?;
+    if Utc::now() > channel.spec.withdraw_period_start {
+        let balances = fetch_balances(&sentry, &channel).await?;
 
         return Ok(IsFinalized::Yes {
             reason: Finalized::Withdraw,
@@ -72,7 +72,7 @@ pub async fn is_finalized(sentry: &SentryApi, campaign: &Campaign) -> Result<IsF
         });
     }
 
-    let leader = campaign.channel.spec.validators.leader();
+    let leader = channel.spec.validators.leader();
     let leader_la = sentry.get_last_approved(&leader).await?;
 
     let total_balances: BigNum = leader_la
@@ -88,8 +88,8 @@ pub async fn is_finalized(sentry: &SentryApi, campaign: &Campaign) -> Result<IsF
         })
         .unwrap_or_default();
 
-    // Is campaign exhausted?
-    if total_balances >= campaign.channel.deposit_amount {
+    // Is channel exhausted?
+    if total_balances >= channel.deposit_amount {
         // get balances from the Leader response
         let balances = leader_la
             .last_approved
@@ -106,17 +106,17 @@ pub async fn is_finalized(sentry: &SentryApi, campaign: &Campaign) -> Result<IsF
         });
     }
 
-    Ok(IsFinalized::No { leader: leader_la })
+    Ok(IsFinalized::No { leader: Box::new(leader_la) })
 }
 
-pub async fn get_status(sentry: &SentryApi, campaign: &Campaign) -> Result<Status, Error> {
+pub async fn get_status(sentry: &SentryApi, channel: &Channel) -> Result<Status, Error> {
     // continue only if Campaign is not Finalized
-    let leader_la = match is_finalized(sentry, campaign).await? {
+    let leader_la = match is_finalized(sentry, channel).await? {
         IsFinalized::Yes { reason, balances } => return Ok(Status::Finalized(reason, balances)),
         IsFinalized::No { leader } => leader,
     };
 
-    let follower = campaign.channel.spec.validators.follower();
+    let follower = channel.spec.validators.follower();
     let follower_la = sentry.get_last_approved(&follower).await?;
 
     // setup the messages for the checks
@@ -161,9 +161,9 @@ pub async fn get_status(sentry: &SentryApi, campaign: &Campaign) -> Result<Statu
 }
 
 /// Calls SentryApi for the Leader's LastApproved NewState and returns the NewState Balance
-async fn fetch_balances(sentry: &SentryApi, campaign: &Campaign) -> Result<BalancesMap, Error> {
+async fn fetch_balances(sentry: &SentryApi, channel: &Channel) -> Result<BalancesMap, Error> {
     let leader_la = sentry
-        .get_last_approved(&campaign.channel.spec.validators.leader())
+        .get_last_approved(&channel.spec.validators.leader())
         .await?;
 
     let balances = leader_la
@@ -235,6 +235,77 @@ fn is_ready() -> bool {
 #[cfg(test)]
 mod test {
     use super::*;
+    use httptest::{mappers::*, responders::*, Expectation, Server, ServerPool};
+    use primitives::util::tests::prep_db::{
+        DUMMY_CHANNEL, DUMMY_VALIDATOR_FOLLOWER, DUMMY_VALIDATOR_LEADER,
+    };
+
+    static SERVER_POOL: ServerPool = ServerPool::new(4);
+
+    fn get_test_channel(server: &Server) -> Channel {
+        let mut channel = DUMMY_CHANNEL.clone();
+        let mut leader = DUMMY_VALIDATOR_LEADER.clone();
+        leader.url = server.url_str("/leader");
+
+        let mut follower = DUMMY_VALIDATOR_FOLLOWER.clone();
+        follower.url = server.url_str("/follower");
+
+        channel.spec.validators = (leader, follower).into();
+
+        channel
+    }
+
+    #[tokio::test]
+    async fn test_is_finalized_when_expired() {
+        let server = SERVER_POOL.get_server();
+        let mut channel = get_test_channel(&server);
+        channel.valid_until = Utc::now() - Duration::seconds(5);
+
+        let response = LastApprovedResponse {
+            last_approved: None,
+            heartbeats: None,
+        };
+
+        server.expect(Expectation::matching(any()).respond_with(json_encoded(response)));
+
+        let sentry = SentryApi::new().expect("Should work");
+
+        let actual = is_finalized(&sentry, &channel)
+            .await
+            .expect("Should query dummy server");
+        let expected = IsFinalized::Yes {
+            reason: Finalized::Expired,
+            balances: Default::default(),
+        };
+
+        assert_eq!(expected, actual);
+    }
+
+    #[tokio::test]
+    async fn test_is_finalized_in_withdraw_period() {
+        let server = SERVER_POOL.get_server();
+        let mut channel = get_test_channel(&server);
+        channel.spec.withdraw_period_start = Utc::now() - Duration::seconds(5);
+
+        let response = LastApprovedResponse {
+            last_approved: None,
+            heartbeats: None,
+        };
+
+        server.expect(Expectation::matching(any()).respond_with(json_encoded(response)));
+
+        let sentry = SentryApi::new().expect("Should work");
+
+        let actual = is_finalized(&sentry, &channel)
+            .await
+            .expect("Should query dummy server");
+        let expected = IsFinalized::Yes {
+            reason: Finalized::Withdraw,
+            balances: Default::default(),
+        };
+
+        assert_eq!(expected, actual);
+    }
 
     #[test]
     fn is_offline_no_heartbeats() {
