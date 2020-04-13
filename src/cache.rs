@@ -130,7 +130,7 @@ impl Cache {
     }
 
     pub async fn finalize_campaign(&self, campaign: &Campaign) -> Result<bool, Error> {
-        let is_finalized = match is_finalized(&self.sentry, &campaign).await? {
+        let is_finalized = match is_finalized(&self.sentry, &campaign.channel).await? {
             IsFinalized::Yes { balances, .. } => {
                 // Put in finalized
                 self.finalized.write().await.insert(campaign.channel.id);
