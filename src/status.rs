@@ -65,7 +65,7 @@ impl Messages {
         self.follower
             .heartbeats
             .as_ref()
-            .map(|heartbeats| self.has_recent_heartbeat(&heartbeats))
+            .map(|heartbeats| self.has_recent_heartbeat_from(&heartbeats, None))
             .unwrap_or(false)
     }
 
@@ -81,7 +81,7 @@ impl Messages {
         self.leader
             .heartbeats
             .as_ref()
-            .map(|heartbeats| self.has_recent_heartbeat(&heartbeats))
+            .map(|heartbeats| self.has_recent_heartbeat_from(&heartbeats, None))
             .unwrap_or(false)
     }
 
@@ -115,10 +115,6 @@ impl Messages {
                 }
                 _ => false,
             })
-    }
-
-    fn has_recent_heartbeat(&self, heartbeats: &[HeartbeatValidatorMessage]) -> bool {
-        self.has_recent_heartbeat_from(heartbeats, None)
     }
 }
 
