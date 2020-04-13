@@ -266,39 +266,6 @@ async fn fetch_balances(sentry: &SentryApi, channel: &Channel) -> Result<Balance
     Ok(balances)
 }
 
-// fn is_hb_by_validator(validator: &ValidatorDesc, heartbeat: &HeartbeatValidatorMessage) -> bool {
-//     heartbeat.from == validator.id
-// }
-
-// fn get_approve_state(last_approved: &Option<LastApproved>) -> Vec<ApproveState> {
-//     match last_approved {
-//         Some(last_approved) => last_approved.approve_state
-//             .into_iter()
-//             .filter_map(|approve_state| match approve_state.msg {
-//                 MessageTypes::ApproveState(approve_state) => Some(approve_state),
-//                 _ => None,
-//             })
-//             .collect(),
-//         None => Default::default(),
-//     }
-// }
-
-// fn get_hb_by_validator(validator: &ValidatorDesc, heartbeats: &[Heartbeat]) -> Vec<Heartbeat> {
-//     heartbeats
-//         .into_iter()
-//         .filter_map(|h| {
-//             if is_hb_by_validator(&validator, &h) {
-//                 match h.msg {
-//                     MessageTypes::Heartbeat(h) => Some(h),
-//                     _ => None,
-//                 }
-//             } else {
-//                 None
-//             }
-//         })
-//         .collect()
-// }
-
 // there are no messages at all for at least one validator
 fn is_initializing(messages: &Messages) -> bool {
     (messages.has_leader_hb() && messages.has_leader_new_state())
