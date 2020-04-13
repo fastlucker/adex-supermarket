@@ -26,3 +26,6 @@ slog-term = "2.5"
 slog-async = "2.5"
 # Other
 lazy_static = "1.4"
+
+[dev-dependencies]
+httptest = "0.12"
