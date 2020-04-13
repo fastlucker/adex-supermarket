@@ -281,7 +281,7 @@ fn is_date_recent(recency: Duration, date: &DateTime<Utc>) -> bool {
 fn is_disconnected(channel: &Channel, messages: &Messages) -> bool {
     let follower = &channel.spec.validators.follower().id;
 
-    messages.has_recent_follower_hb() && messages.has_recent_leader_hb_from(follower)
+    !(messages.has_recent_follower_hb() && messages.has_recent_leader_hb_from(follower))
 }
 
 fn is_rejected_state() -> bool {
