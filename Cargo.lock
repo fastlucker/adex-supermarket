@@ -987,7 +987,7 @@ checksum = "74490b50b9fbe561ac330df47c08f3f33073d2d00c150f719147d7c54522fa1b"
 [[package]]
 name = "primitives"
 version = "0.1.0"
-source = "git+https://github.com/AdExNetwork/adex-validator-stack-rust?branch=clean-up-marketing-campaign#c48f9db3d1d43821c4495fa70fc353964476e3a0"
+source = "git+https://github.com/AdExNetwork/adex-validator-stack-rust?branch=clean-up-marketing-campaign#e568c8447f84681174567b2392e477462eb3c96b"
 dependencies = [
  "chrono",
  "fake",
