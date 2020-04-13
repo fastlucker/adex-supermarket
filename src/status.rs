@@ -1,10 +1,9 @@
 use crate::sentry_api::SentryApi;
 use chrono::{DateTime, Duration, Utc};
 use primitives::{
-    Channel,
     sentry::{HeartbeatValidatorMessage, LastApproved, LastApprovedResponse},
     validator::{Heartbeat, MessageTypes},
-    BalancesMap, BigNum,
+    BalancesMap, BigNum, Channel,
 };
 use reqwest::Error;
 
@@ -44,7 +43,7 @@ pub enum IsFinalized {
         balances: BalancesMap,
     },
     No {
-        leader: LastApprovedResponse,
+        leader: Box<LastApprovedResponse>,
     },
 }
 
@@ -107,7 +106,7 @@ pub async fn is_finalized(sentry: &SentryApi, channel: &Channel) -> Result<IsFin
         });
     }
 
-    Ok(IsFinalized::No { leader: leader_la })
+    Ok(IsFinalized::No { leader: Box::new(leader_la) })
 }
 
 pub async fn get_status(sentry: &SentryApi, channel: &Channel) -> Result<Status, Error> {
@@ -236,8 +235,10 @@ fn is_ready() -> bool {
 #[cfg(test)]
 mod test {
     use super::*;
-    use primitives::util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_LEADER, DUMMY_VALIDATOR_FOLLOWER};
-    use httptest::{Server, ServerPool, Expectation, mappers::*, responders::*};
+    use httptest::{mappers::*, responders::*, Expectation, Server, ServerPool};
+    use primitives::util::tests::prep_db::{
+        DUMMY_CHANNEL, DUMMY_VALIDATOR_FOLLOWER, DUMMY_VALIDATOR_LEADER,
+    };
 
     static SERVER_POOL: ServerPool = ServerPool::new(4);
 
@@ -248,7 +249,7 @@ mod test {
 
         let mut follower = DUMMY_VALIDATOR_FOLLOWER.clone();
         follower.url = server.url_str("/follower");
-        
+
         channel.spec.validators = (leader, follower).into();
 
         channel
@@ -260,6 +261,31 @@ mod test {
         let mut channel = get_test_channel(&server);
         channel.valid_until = Utc::now() - Duration::seconds(5);
 
+        let response = LastApprovedResponse {
+            last_approved: None,
+            heartbeats: None,
+        };
+
+        server.expect(Expectation::matching(any()).respond_with(json_encoded(response)));
+
+        let sentry = SentryApi::new().expect("Should work");
+
+        let actual = is_finalized(&sentry, &channel)
+            .await
+            .expect("Should query dummy server");
+        let expected = IsFinalized::Yes {
+            reason: Finalized::Expired,
+            balances: Default::default(),
+        };
+
+        assert_eq!(expected, actual);
+    }
+
+    #[tokio::test]
+    async fn test_is_finalized_in_withdraw_period() {
+        let server = SERVER_POOL.get_server();
+        let mut channel = get_test_channel(&server);
+        channel.spec.withdraw_period_start = Utc::now() - Duration::seconds(5);
 
         let response = LastApprovedResponse {
             last_approved: None,
@@ -270,9 +296,11 @@ mod test {
 
         let sentry = SentryApi::new().expect("Should work");
 
-        let actual = is_finalized(&sentry, &channel).await.expect("Should query dummy server");
+        let actual = is_finalized(&sentry, &channel)
+            .await
+            .expect("Should query dummy server");
         let expected = IsFinalized::Yes {
-            reason: Finalized::Expired,
+            reason: Finalized::Withdraw,
             balances: Default::default(),
         };
 
