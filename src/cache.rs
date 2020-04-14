@@ -1,4 +1,8 @@
-use crate::market::{MarketApi, MarketUrl, Statuses};
+use crate::{
+    market::{MarketApi, MarketUrl, Statuses},
+    status::{is_finalized, IsFinalized},
+    SentryApi,
+};
 use primitives::{
     market::{Campaign, StatusType, StatusType::*},
     BalancesMap, ChannelId,
@@ -18,6 +22,7 @@ pub struct Cache {
     pub balance_from_finalized: Cached<BalancesMap>,
     market: Arc<MarketApi>,
     logger: Logger,
+    sentry: SentryApi,
 }
 
 impl Cache {
@@ -38,6 +43,7 @@ impl Cache {
     /// Fetches all the campaigns from the Market and returns the Cache instance
     pub async fn initialize(market_url: MarketUrl, logger: Logger) -> Result<Self, Error> {
         let market = MarketApi::new(market_url, logger.clone())?;
+        let sentry = SentryApi::new()?;
 
         let all_campaigns = market.fetch_campaigns(&Statuses::All).await?;
 
@@ -58,7 +64,7 @@ impl Cache {
                     |mut acc, (publisher, balance)| {
                         acc.entry(publisher.clone())
                             .and_modify(|current_balance| *current_balance += balance)
-                            .or_default();
+                            .or_insert_with(|| balance.clone());
 
                         acc
                     },
@@ -76,6 +82,7 @@ impl Cache {
             finalized: Arc::new(RwLock::new(finalized)),
             balance_from_finalized: Arc::new(RwLock::new(balances)),
             logger,
+            sentry,
         })
     }
 
@@ -120,5 +127,29 @@ impl Cache {
         }
 
         Ok(())
+    }
+
+    pub async fn finalize_campaign(&self, campaign: &Campaign) -> Result<bool, Error> {
+        let is_finalized = match is_finalized(&self.sentry, &campaign.channel).await? {
+            IsFinalized::Yes { balances, .. } => {
+                // Put in finalized
+                self.finalized.write().await.insert(campaign.channel.id);
+
+                // Sum the balances in balances_from_finalized
+                let mut finalized_balances = self.balance_from_finalized.write().await;
+
+                for (publisher, value) in balances {
+                    finalized_balances
+                        .entry(publisher)
+                        .and_modify(|current_balance| *current_balance += &value)
+                        .or_insert(value);
+                }
+
+                true
+            }
+            _ => false,
+        };
+
+        Ok(is_finalized)
     }
 }

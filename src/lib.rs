@@ -10,6 +10,11 @@ use slog::{error, info, Logger};
 
 mod cache;
 mod market;
+mod sentry_api;
+// @TODO: mod status; This is suppressing the warnings
+pub mod status;
+
+pub use sentry_api::SentryApi;
 
 #[derive(Debug)]
 pub enum Error {

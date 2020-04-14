@@ -19,7 +19,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .get_matches();
 
-    let market_url = cli.value_of("marketUrl").expect("No market URL provided!").to_string();
+    let market_url = cli
+        .value_of("marketUrl")
+        .expect("No market URL provided!")
+        .to_string();
     // Construct our SocketAddr to listen on...
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
 
