@@ -304,8 +304,12 @@ fn is_ready() -> bool {
 mod test {
     use super::*;
     use httptest::{mappers::*, responders::*, Expectation, Server, ServerPool};
-    use primitives::util::tests::prep_db::{
-        DUMMY_CHANNEL, DUMMY_VALIDATOR_FOLLOWER, DUMMY_VALIDATOR_LEADER,
+    use primitives::{
+        util::tests::prep_db::{
+            DUMMY_CHANNEL, DUMMY_VALIDATOR_FOLLOWER, DUMMY_VALIDATOR_LEADER,
+        },
+        sentry::{ApproveStateValidatorMessage, NewStateValidatorMessage},
+        validator::{ApproveState, NewState, Heartbeat}
     };
 
     static SERVER_POOL: ServerPool = ServerPool::new(4);
@@ -321,6 +325,42 @@ mod test {
         channel.spec.validators = (leader, follower).into();
 
         channel
+    }
+
+    fn get_approve_state_msg() -> Option<ApproveStateValidatorMessage> {
+        Some(ApproveStateValidatorMessage {
+            from: DUMMY_VALIDATOR_LEADER.id.clone(),
+            received: Utc::now(),
+            msg: MessageTypes::ApproveState(ApproveState {
+                state_root: String::from("0x0"),
+                signature: String::from("0x0"),
+                is_healthy: true,
+            }),
+        })
+    }
+
+    fn get_heartbeat_msgs() -> Option<Vec<HeartbeatValidatorMessage>> {
+        Some(vec![HeartbeatValidatorMessage {
+            from: DUMMY_VALIDATOR_LEADER.id.clone(),
+            received: Utc::now(),
+            msg: MessageTypes::Heartbeat(Heartbeat {
+                signature: String::from("0x0"),
+                state_root: String::from("0x0"),
+                timestamp: Utc::now(),
+            }),
+        }])
+    }
+
+    fn get_newstate_msg() -> Option<NewStateValidatorMessage> {
+        Some(NewStateValidatorMessage {
+            from: DUMMY_VALIDATOR_LEADER.id.clone(),
+            received: Utc::now(),
+            msg: MessageTypes::NewState(NewState {
+                signature: String::from("0x0"),
+                state_root: String::from("0x0"),
+                balances: Default::default(),
+            }),
+        })
     }
 
     #[tokio::test]
@@ -466,52 +506,80 @@ mod test {
         )
     }
 
-    // #[test]
-    // fn leader_has_no_messages() {
-    //     let messages = Messages {
-    //         leader: LastApprovedResponse {
-    //             last_approved: Some(vec![]),
-    //             heartbeats: Some(vec![]),
-    //         },
-    //         follower: LastApprovedResponse {
-    //             last_approved: Some(vec![]),
-    //             heartbeats: Some(vec![]),
-    //         },
-    //         recency: Duration::minutes(4),
-    //     };
+    #[test]
+    fn leader_has_no_messages() {
+        let messages = Messages {
+            leader: LastApprovedResponse {
+                last_approved: None,
+                heartbeats: Some(vec![]),
+            },
+            follower: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: None,
+                    approve_state: get_approve_state_msg(),
+                }),
+                heartbeats: get_heartbeat_msgs(),
+            },
+            recency: Duration::minutes(4),
+        };
 
-    //     assert_eq!(
-    //         is_initializing(&messages),
-    //         true,
-    //         "Both leader heartbeats + newstate and follower heatbeats + approvestate pairs are empty arrays"
-    //     )
-    // }
+        assert_eq!(
+            is_initializing(&messages),
+            true,
+            "Leader has no new messages but the follower has heartbeats and approvestate"
+        )
+    }
 
-    // #[test]
-    // fn follower_has_no_messages() {
-    //     let messages = Messages {
-    //         leader: LastApprovedResponse {
-    //             last_approved: Some(vec![]),
-    //             heartbeats: Some(vec![]),
-    //         },
-    //         follower: LastApprovedResponse {
-    //             last_approved: Some(vec![]),
-    //             heartbeats: Some(vec![]),
-    //         },
-    //         recency: Duration::minutes(4),
-    //     };
+    #[test]
+    fn follower_has_no_messages() {
+        let messages = Messages {
+            leader: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: get_newstate_msg(),
+                    approve_state: None,
+                }),
+                heartbeats: get_heartbeat_msgs(),
+            },
+            follower: LastApprovedResponse {
+                last_approved: None,
+                heartbeats: Some(vec![]),
+            },
+            recency: Duration::minutes(4),
+        };
 
-    //     assert_eq!(
-    //         is_initializing(&messages),
-    //         true,
-    //         "Both leader heartbeats + newstate and follower heatbeats + approvestate pairs are empty arrays"
-    //     )
-    // }
+        assert_eq!(
+            is_initializing(&messages),
+            true,
+            "Follower has no new messages but leader has heartbeats and newstate"
+        )
+    }
 
-    // #[test]
-    // fn both_arrays_have_messages() {
-    //     todo!()
-    // }
+    #[test]
+    fn both_arrays_have_messages() {
+        let messages = Messages {
+            leader: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: get_newstate_msg(),
+                    approve_state: None,
+                }),
+                heartbeats: get_heartbeat_msgs(),
+            },
+            follower: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: None,
+                    approve_state: get_approve_state_msg(),
+                }),
+                heartbeats: get_heartbeat_msgs(),
+            },
+            recency: Duration::minutes(4),
+        };
+
+        assert_eq!(
+            is_initializing(&messages),
+            false,
+            "Both arrays have messages"
+        )
+    }
 
     // is_disconnected()
     // #[test]
