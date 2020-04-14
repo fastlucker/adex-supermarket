@@ -1,7 +1,7 @@
 use crate::sentry_api::SentryApi;
 use chrono::{DateTime, Duration, Utc};
 use primitives::{
-    sentry::{HeartbeatValidatorMessage, LastApprovedResponse},
+    sentry::{HeartbeatValidatorMessage, LastApprovedResponse, LastApproved},
     validator::MessageTypes,
     BalancesMap, BigNum, Channel, ValidatorId,
 };
@@ -264,8 +264,8 @@ async fn fetch_balances(sentry: &SentryApi, channel: &Channel) -> Result<Balance
 
 /// there are no messages at all for at least one validator
 fn is_initializing(messages: &Messages) -> bool {
-    (messages.has_leader_hb() && messages.has_leader_new_state())
-        || (messages.has_follower_hb() && messages.has_follower_approve_state())
+    (!messages.has_leader_hb() && !messages.has_leader_new_state())
+        || (!messages.has_follower_hb() && !messages.has_follower_approve_state())
 }
 
 /// at least one validator doesn't have a recent Heartbeat message
@@ -445,28 +445,67 @@ mod test {
     }
 
     // is_initializing()
-    // #[test]
-    // fn two_empty_message_arrays() {
-        // let leader_hbs: [Heartbeat; 0] = [];
-        // let follower_hbs: [Heartbeat; 0] = [];
-        // let new_state_msgs: [NewState; 0] = [];
-        // let approve_state_msgs: [ApproveState; 0] = [];
+    #[test]
+    fn two_empty_message_arrays() {
+        let messages = Messages {
+            leader: LastApprovedResponse {
+                last_approved: None,
+                heartbeats: Some(vec![]),
+            },
+            follower: LastApprovedResponse {
+                last_approved: None,
+                heartbeats: Some(vec![]),
+            },
+            recency: Duration::minutes(4),
+        };
 
-        // assert_eq!(
-        //     is_initializing(&leader_hbs, &follower_hbs, &new_state_msgs, &approve_state_msgs),
-        //     true,
-        //     "Both leader heartbeats + newstate and follower heatbeats + approvestate pairs are empty arrays"
-        // )
+        assert_eq!(
+            is_initializing(&messages),
+            true,
+            "Both leader heartbeats + newstate and follower heatbeats + approvestate pairs are empty arrays"
+        )
+    }
+
+    // #[test]
+    // fn leader_has_no_messages() {
+    //     let messages = Messages {
+    //         leader: LastApprovedResponse {
+    //             last_approved: Some(vec![]),
+    //             heartbeats: Some(vec![]),
+    //         },
+    //         follower: LastApprovedResponse {
+    //             last_approved: Some(vec![]),
+    //             heartbeats: Some(vec![]),
+    //         },
+    //         recency: Duration::minutes(4),
+    //     };
+
+    //     assert_eq!(
+    //         is_initializing(&messages),
+    //         true,
+    //         "Both leader heartbeats + newstate and follower heatbeats + approvestate pairs are empty arrays"
+    //     )
     // }
 
     // #[test]
-    // fn first_message_arr_is_empty() {
-    //     todo!()
-    // }
+    // fn follower_has_no_messages() {
+    //     let messages = Messages {
+    //         leader: LastApprovedResponse {
+    //             last_approved: Some(vec![]),
+    //             heartbeats: Some(vec![]),
+    //         },
+    //         follower: LastApprovedResponse {
+    //             last_approved: Some(vec![]),
+    //             heartbeats: Some(vec![]),
+    //         },
+    //         recency: Duration::minutes(4),
+    //     };
 
-    // #[test]
-    // fn second_message_arr_is_empty() {
-    //     todo!()
+    //     assert_eq!(
+    //         is_initializing(&messages),
+    //         true,
+    //         "Both leader heartbeats + newstate and follower heatbeats + approvestate pairs are empty arrays"
+    //     )
     // }
 
     // #[test]
