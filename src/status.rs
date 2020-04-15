@@ -703,9 +703,9 @@ mod test {
         let server = SERVER_POOL.get_server();
         let channel = get_test_channel(&server);
         let mut heartbeat_1 = get_heartbeat_msgs(Duration::minutes(0));
-        heartbeat_1.from = channel.spec.validators.leader().id;
+        heartbeat_1.from = channel.spec.validators.leader().clone().id;
         let mut heartbeat_2 = get_heartbeat_msgs(Duration::minutes(0));
-        heartbeat_2.from = channel.spec.validators.follower().id;
+        heartbeat_2.from = channel.spec.validators.follower().clone().id;
         let new_state = get_newstate_msg();
         let approve_state = get_approve_state_msg();
 
