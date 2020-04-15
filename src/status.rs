@@ -327,8 +327,8 @@ mod test {
         channel
     }
 
-    fn get_approve_state_msg() -> Option<ApproveStateValidatorMessage> {
-        Some(ApproveStateValidatorMessage {
+    fn get_approve_state_msg() -> ApproveStateValidatorMessage {
+        ApproveStateValidatorMessage {
             from: DUMMY_VALIDATOR_LEADER.id.clone(),
             received: Utc::now(),
             msg: MessageTypes::ApproveState(ApproveState {
@@ -336,23 +336,23 @@ mod test {
                 signature: String::from("0x0"),
                 is_healthy: true,
             }),
-        })
+        }
     }
 
-    fn get_heartbeat_msgs() -> Option<Vec<HeartbeatValidatorMessage>> {
-        Some(vec![HeartbeatValidatorMessage {
+    fn get_heartbeat_msgs(recency: Duration) -> HeartbeatValidatorMessage {
+        HeartbeatValidatorMessage {
             from: DUMMY_VALIDATOR_LEADER.id.clone(),
-            received: Utc::now(),
+            received: Utc::now() - recency,
             msg: MessageTypes::Heartbeat(Heartbeat {
                 signature: String::from("0x0"),
                 state_root: String::from("0x0"),
-                timestamp: Utc::now(),
+                timestamp: Utc::now() - recency,
             }),
-        }])
+        }
     }
 
-    fn get_newstate_msg() -> Option<NewStateValidatorMessage> {
-        Some(NewStateValidatorMessage {
+    fn get_newstate_msg() -> NewStateValidatorMessage {
+        NewStateValidatorMessage {
             from: DUMMY_VALIDATOR_LEADER.id.clone(),
             received: Utc::now(),
             msg: MessageTypes::NewState(NewState {
@@ -360,7 +360,7 @@ mod test {
                 state_root: String::from("0x0"),
                 balances: Default::default(),
             }),
-        })
+        }
     }
 
     #[tokio::test]
@@ -508,6 +508,8 @@ mod test {
 
     #[test]
     fn leader_has_no_messages() {
+        let approve_state = get_approve_state_msg();
+        let heartbeat = get_heartbeat_msgs(Duration::minutes(0));
         let messages = Messages {
             leader: LastApprovedResponse {
                 last_approved: None,
@@ -516,9 +518,9 @@ mod test {
             follower: LastApprovedResponse {
                 last_approved: Some(LastApproved {
                     new_state: None,
-                    approve_state: get_approve_state_msg(),
+                    approve_state: Some(approve_state),
                 }),
-                heartbeats: get_heartbeat_msgs(),
+                heartbeats: Some(vec![heartbeat]),
             },
             recency: Duration::minutes(4),
         };
@@ -532,13 +534,16 @@ mod test {
 
     #[test]
     fn follower_has_no_messages() {
+        let heartbeat = get_heartbeat_msgs(Duration::minutes(0));
+        let new_state = get_newstate_msg();
+
         let messages = Messages {
             leader: LastApprovedResponse {
                 last_approved: Some(LastApproved {
-                    new_state: get_newstate_msg(),
+                    new_state: Some(new_state),
                     approve_state: None,
                 }),
-                heartbeats: get_heartbeat_msgs(),
+                heartbeats: Some(vec![heartbeat]),
             },
             follower: LastApprovedResponse {
                 last_approved: None,
@@ -556,20 +561,25 @@ mod test {
 
     #[test]
     fn both_arrays_have_messages() {
+        let heartbeat_1 = get_heartbeat_msgs(Duration::minutes(0));
+        let heartbeat_2 = get_heartbeat_msgs(Duration::minutes(0));
+        let new_state = get_newstate_msg();
+        let approve_state = get_approve_state_msg();
+
         let messages = Messages {
             leader: LastApprovedResponse {
                 last_approved: Some(LastApproved {
-                    new_state: get_newstate_msg(),
+                    new_state: Some(new_state),
                     approve_state: None,
                 }),
-                heartbeats: get_heartbeat_msgs(),
+                heartbeats: Some(vec![heartbeat_1]),
             },
             follower: LastApprovedResponse {
                 last_approved: Some(LastApproved {
                     new_state: None,
-                    approve_state: get_approve_state_msg(),
+                    approve_state: Some(approve_state),
                 }),
-                heartbeats: get_heartbeat_msgs(),
+                heartbeats: Some(vec![heartbeat_2]),
             },
             recency: Duration::minutes(4),
         };
@@ -582,25 +592,147 @@ mod test {
     }
 
     // is_disconnected()
-    // #[test]
-    // fn no_recent_hbs_on_both_sides() {
-    //     todo!()
-    // }
+    #[test]
+    fn no_recent_hbs_on_both_sides() {
+        let server = SERVER_POOL.get_server();
+        let channel = get_test_channel(&server);
+        let heartbeat_1 = get_heartbeat_msgs(Duration::minutes(10));
+        let heartbeat_2 = get_heartbeat_msgs(Duration::minutes(10));
+        let new_state = get_newstate_msg();
+        let approve_state = get_approve_state_msg();
 
-    // #[test]
-    // fn no_recent_follower_hbs() {
-    //     todo!()
-    // }
+        let messages = Messages {
+            leader: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: Some(new_state),
+                    approve_state: None,
+                }),
+                heartbeats: Some(vec![heartbeat_1]),
+            },
+            follower: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: None,
+                    approve_state: Some(approve_state),
+                }),
+                heartbeats: Some(vec![heartbeat_2]),
+            },
+            recency: Duration::minutes(4),
+        };
 
-    // #[test]
-    // fn no_recent_leader_hb_on_follower_validator() {
-    //     todo!()
-    // }
+        assert_eq!(
+            is_disconnected(&channel, &messages),
+            true,
+            "Both leader and follower heartbeats have no recent messages"
+        )
+    }
 
-    // #[test]
-    // fn recent_hbs_on_both_arrays() {
-    //     todo!()
-    // }
+    #[test]
+    fn no_recent_follower_hbs() {
+        let server = SERVER_POOL.get_server();
+        let channel = get_test_channel(&server);
+        let heartbeat_1 = get_heartbeat_msgs(Duration::minutes(0));
+        let heartbeat_2 = get_heartbeat_msgs(Duration::minutes(10));
+        let new_state = get_newstate_msg();
+        let approve_state = get_approve_state_msg();
+
+        let messages = Messages {
+            leader: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: Some(new_state),
+                    approve_state: None,
+                }),
+                heartbeats: Some(vec![heartbeat_1]),
+            },
+            follower: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: None,
+                    approve_state: Some(approve_state),
+                }),
+                heartbeats: Some(vec![heartbeat_2]),
+            },
+            recency: Duration::minutes(4),
+        };
+
+        assert_eq!(
+            is_disconnected(&channel, &messages),
+            true,
+            "Follower heartbeats have no recent messages"
+        )
+    }
+
+    #[test]
+    fn no_recent_leader_hb_on_follower_validator() {
+        let server = SERVER_POOL.get_server();
+        let channel = get_test_channel(&server);
+        let follower_id = &channel.spec.validators.follower().id;
+
+        let mut heartbeat_1 = get_heartbeat_msgs(Duration::minutes(0));
+        heartbeat_1.from = follower_id.clone();
+        let mut heartbeat_2 = get_heartbeat_msgs(Duration::minutes(0));
+        heartbeat_2.from = follower_id.clone();
+        let new_state = get_newstate_msg();
+        let approve_state = get_approve_state_msg();
+
+        let messages = Messages {
+            leader: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: Some(new_state),
+                    approve_state: None,
+                }),
+                heartbeats: Some(vec![]),
+            },
+            follower: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: None,
+                    approve_state: Some(approve_state),
+                }),
+                heartbeats: Some(vec![heartbeat_1, heartbeat_2]),
+            },
+            recency: Duration::minutes(4),
+        };
+
+        assert_eq!(
+            is_disconnected(&channel, &messages),
+            true,
+            "Follower validator has recent HB messages but none have come from the leader validator"
+        )
+    }
+
+    #[test]
+    fn recent_hbs_on_both_arrays() {
+        let server = SERVER_POOL.get_server();
+        let channel = get_test_channel(&server);
+        let mut heartbeat_1 = get_heartbeat_msgs(Duration::minutes(0));
+        heartbeat_1.from = channel.spec.validators.leader().id;
+        let mut heartbeat_2 = get_heartbeat_msgs(Duration::minutes(0));
+        heartbeat_2.from = channel.spec.validators.follower().id;
+        let new_state = get_newstate_msg();
+        let approve_state = get_approve_state_msg();
+
+        let messages = Messages {
+            leader: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: Some(new_state),
+                    approve_state: None,
+                }),
+                heartbeats: Some(vec![]),
+            },
+            follower: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: None,
+                    approve_state: Some(approve_state),
+                }),
+                heartbeats: Some(vec![heartbeat_1, heartbeat_2]),
+            },
+            recency: Duration::minutes(4),
+        };
+
+        assert_eq!(
+            is_disconnected(&channel, &messages),
+            false,
+            "Follower validator has recent HB messages including ones coming from the leader validator"
+        )
+    }
 
     // @TODO: test is_offline()
 }
