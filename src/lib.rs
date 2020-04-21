@@ -146,6 +146,7 @@ async fn spawn_fetch_campaigns(market_uri: &str, logger: Logger) -> Result<Cache
 
         // Every few seconds, we will update our active campaigns from the
         // validators (update their latest balance tree).
+        // @TODO: Move to configuration
         let new_duration = Duration::from_secs(20);
         let update_duration = Duration::from_secs(5);
         let new_interval = interval(new_duration).map(TimeFor::New);
