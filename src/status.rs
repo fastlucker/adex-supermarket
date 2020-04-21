@@ -1,6 +1,7 @@
 use crate::sentry_api::SentryApi;
 use chrono::{DateTime, Duration, Utc};
 use primitives::{
+    market::Status as MarketStatus,
     sentry::{HeartbeatValidatorMessage, LastApproved, LastApprovedResponse},
     validator::{Heartbeat, MessageTypes},
     BalancesMap, BigNum, Channel,
@@ -21,6 +22,45 @@ pub enum Status {
         rejected_state: bool,
         unhealthy: bool,
     },
+}
+
+impl From<&MarketStatus> for Status {
+    fn from(market_status: &MarketStatus) -> Self {
+        use primitives::market::StatusType::*;
+        match market_status.status_type {
+            Active | Ready => Self::Active,
+            Pending => Self::Pending,
+            Initializing => Self::Initializing,
+            Waiting => Self::Waiting,
+            Offline => Self::Unsound {
+                disconnected: false,
+                offline: true,
+                rejected_state: false,
+                unhealthy: false,
+            },
+            Disconnected => Self::Unsound {
+                disconnected: true,
+                offline: false,
+                rejected_state: false,
+                unhealthy: false,
+            },
+            Unhealthy => Self::Unsound {
+                disconnected: false,
+                offline: false,
+                rejected_state: false,
+                unhealthy: true,
+            },
+            Invalid => Self::Unsound {
+                disconnected: false,
+                offline: false,
+                rejected_state: true,
+                unhealthy: false,
+            },
+            Expired => Self::Finalized(Finalized::Expired, market_status.balances.clone()),
+            Exhausted => Self::Finalized(Finalized::Exhausted, market_status.balances.clone()),
+            Withdraw => Self::Finalized(Finalized::Withdraw, market_status.balances.clone()),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -106,7 +146,9 @@ pub async fn is_finalized(sentry: &SentryApi, channel: &Channel) -> Result<IsFin
         });
     }
 
-    Ok(IsFinalized::No { leader: Box::new(leader_la) })
+    Ok(IsFinalized::No {
+        leader: Box::new(leader_la),
+    })
 }
 
 pub async fn get_status(sentry: &SentryApi, channel: &Channel) -> Result<Status, Error> {
