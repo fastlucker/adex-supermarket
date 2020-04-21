@@ -7,6 +7,8 @@ edition = "2018"
 [dependencies]
 primitives = { git = "https://github.com/AdExNetwork/adex-validator-stack-rust", branch = "clean-up-marketing-campaign" }
 chrono = { version = "0.4" }
+
+futures = { version = "0.3" }
 # Server
 tokio = { version = "0.2", features = ["macros", "rt-threaded", "sync"] }
 hyper = { version = "0.13", features = ["stream"] }
