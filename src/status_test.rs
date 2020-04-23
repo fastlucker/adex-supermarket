@@ -192,6 +192,12 @@ mod is_finalized {
 mod is_offline {
     use super::*;
 
+    use lazy_static::lazy_static;
+
+    lazy_static! {
+        static ref RECENCY: Duration = Duration::minutes(4);
+    }
+
     fn get_messages(
         leader: Option<Vec<HeartbeatValidatorMessage>>,
         follower: Option<Vec<HeartbeatValidatorMessage>>,
@@ -206,7 +212,7 @@ mod is_offline {
                 heartbeats: follower,
             },
             // we don't check the Recency, so we don't care about it's value
-            recency: Duration::minutes(4),
+            recency: *RECENCY,
         }
     }
 
@@ -247,6 +253,22 @@ mod is_offline {
         assert!(
             is_offline(&messages),
             "Offline: If `None` / empty heartbeats in the Leader!"
+        );
+    }
+
+    #[test]
+    fn it_is_offline_when_it_has_old_validators_heartbeats() {
+        let leader = DUMMY_VALIDATOR_LEADER.id;
+        let follower = DUMMY_VALIDATOR_FOLLOWER.id;
+        let old_recency = *RECENCY + Duration::minutes(1);
+        let old_leader_hb = get_heartbeat_msg(old_recency, leader);
+        let old_follower_hb = get_heartbeat_msg(old_recency, follower);
+
+        let messages = get_messages(Some(vec![old_leader_hb]), Some(vec![old_follower_hb]));
+
+        assert!(
+            is_offline(&messages),
+            "Offline: If it does not have recent heartbeats in both Leader & Follower!"
         );
     }
 
