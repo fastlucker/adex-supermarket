@@ -7,6 +7,10 @@ use primitives::{
 };
 use reqwest::Error;
 
+#[cfg(test)]
+#[path = "status_test.rs"]
+mod tests;
+
 #[derive(Debug)]
 pub enum Status {
     // Active and Ready
@@ -41,7 +45,7 @@ impl Messages {
         self.leader
             .heartbeats
             .as_ref()
-            .map(|heartbeats| heartbeats.len() > 0)
+            .map(|heartbeats| !heartbeats.is_empty())
             .unwrap_or(false)
     }
 
@@ -49,7 +53,7 @@ impl Messages {
         self.follower
             .heartbeats
             .as_ref()
-            .map(|heartbeats| heartbeats.len() > 0)
+            .map(|heartbeats| !heartbeats.is_empty())
             .unwrap_or(false)
     }
 
@@ -76,7 +80,6 @@ impl Messages {
             .map(|heartbeats| self.has_recent_heartbeat_from(heartbeats, Some(validator)))
             .unwrap_or(false)
     }
-
 
     fn has_recent_follower_hb_from(&self, validator: &ValidatorId) -> bool {
         self.follower
@@ -313,13 +316,11 @@ fn is_ready() -> bool {
 #[cfg(test)]
 mod test {
     use super::*;
-    use httptest::{mappers::*, responders::*, Expectation, Server, ServerPool};
+    use httptest::{Server, ServerPool};
     use primitives::{
-        util::tests::prep_db::{
-            DUMMY_CHANNEL, DUMMY_VALIDATOR_FOLLOWER, DUMMY_VALIDATOR_LEADER,
-        },
-        sentry::{ApproveStateValidatorMessage, NewStateValidatorMessage, LastApproved},
-        validator::{ApproveState, NewState, Heartbeat}
+        sentry::{ApproveStateValidatorMessage, LastApproved, NewStateValidatorMessage},
+        util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_FOLLOWER, DUMMY_VALIDATOR_LEADER},
+        validator::{ApproveState, Heartbeat, NewState},
     };
 
     static SERVER_POOL: ServerPool = ServerPool::new(4);
@@ -371,95 +372,6 @@ mod test {
                 balances: Default::default(),
             }),
         }
-    }
-
-    #[tokio::test]
-    async fn test_is_finalized_when_expired() {
-        let server = SERVER_POOL.get_server();
-        let mut channel = get_test_channel(&server);
-        channel.valid_until = Utc::now() - Duration::seconds(5);
-
-        let response = LastApprovedResponse {
-            last_approved: None,
-            heartbeats: None,
-        };
-
-        server.expect(Expectation::matching(any()).respond_with(json_encoded(response)));
-
-        let sentry = SentryApi::new().expect("Should work");
-
-        let actual = is_finalized(&sentry, &channel)
-            .await
-            .expect("Should query dummy server");
-        let expected = IsFinalized::Yes {
-            reason: Finalized::Expired,
-            balances: Default::default(),
-        };
-
-        assert_eq!(expected, actual);
-    }
-
-    #[tokio::test]
-    async fn test_is_finalized_in_withdraw_period() {
-        let server = SERVER_POOL.get_server();
-        let mut channel = get_test_channel(&server);
-        channel.spec.withdraw_period_start = Utc::now() - Duration::seconds(5);
-
-        let response = LastApprovedResponse {
-            last_approved: None,
-            heartbeats: None,
-        };
-
-        server.expect(Expectation::matching(any()).respond_with(json_encoded(response)));
-
-        let sentry = SentryApi::new().expect("Should work");
-
-        let actual = is_finalized(&sentry, &channel)
-            .await
-            .expect("Should query dummy server");
-        let expected = IsFinalized::Yes {
-            reason: Finalized::Withdraw,
-            balances: Default::default(),
-        };
-
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn is_offline_no_heartbeats() {
-        let messages = Messages {
-            leader: LastApprovedResponse {
-                last_approved: None,
-                heartbeats: Some(vec![]),
-            },
-            follower: LastApprovedResponse {
-                last_approved: None,
-                heartbeats: Some(vec![]),
-            },
-            recency: Duration::minutes(4),
-        };
-
-        assert!(
-            is_offline(&messages),
-            "On empty heartbeat it should be offline!"
-        );
-
-        let messages = Messages {
-            leader: LastApprovedResponse {
-                last_approved: None,
-                heartbeats: None,
-            },
-            follower: LastApprovedResponse {
-                last_approved: None,
-                heartbeats: Some(vec![]),
-            },
-            recency: Duration::minutes(4),
-        };
-
-        assert!(
-            is_offline(&messages),
-            "On empty heartbeat it should be offline!"
-        );
     }
 
     // is_date_recent()
@@ -793,6 +705,4 @@ mod test {
             "Leader hb has recent messages that came from the follower, and the follower has recent messages that came from the leader"
         )
     }
-
-    // @TODO: test is_offline()
 }
