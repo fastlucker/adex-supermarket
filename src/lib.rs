@@ -133,26 +133,45 @@ async fn spawn_fetch_campaigns(market_uri: &str, logger: Logger) -> Result<Cache
     let cache = Cache::initialize(market_uri.into(), logger.clone()).await?;
     info!(
         &logger,
-        "Campaigns are fetched from market & Cache is initialized..."
+        "Campaigns have been fetched from the Market & Cache is now initialized..."
     );
 
     let cache_spawn = cache.clone();
     // Every few minutes, we will get the non-finalized from the market,
     // in order to keep discovering new campaigns.
     tokio::spawn(async move {
-        use tokio::time::{delay_for, Duration};
+        use futures::stream::{select, StreamExt};
+        use tokio::time::{interval, Duration, Instant};
         info!(&logger, "Task for updating campaign has been spawned");
 
-        loop {
-            // @TODO: Move to config
-            delay_for(Duration::from_secs(1 * 60)).await;
-            if let Err(e) = cache_spawn.update_campaigns().await {
-                error!(&logger, "{}", e);
-            }
-            info!(&logger, "Campaigns updated!");
-        }
         // Every few seconds, we will update our active campaigns from the
         // validators (update their latest balance tree).
+        // @TODO: Move to configuration
+        let new_duration = Duration::from_secs(20);
+        let update_duration = Duration::from_secs(5);
+        let new_interval = interval(new_duration).map(TimeFor::New);
+        let update_interval = interval(update_duration).map(TimeFor::Update);
+
+        enum TimeFor {
+            New(Instant),
+            Update(Instant),
+        }
+
+        let mut select_time = select(new_interval, update_interval);
+
+        while let Some(time_for) = select_time.next().await {
+            // @TODO: Timeout the action
+            match time_for {
+                TimeFor::New(_) => match cache_spawn.fetch_new_campaigns().await {
+                    Err(e) => error!(&logger, "{}", e),
+                    _ => info!(&logger, "New Campaigns fetched from Market!"),
+                },
+                TimeFor::Update(_) => {
+                    cache_spawn.update_campaigns().await;
+                    info!(&logger, "Campaigns statuses updated from Validators!");
+                }
+            }
+        }
     });
 
     Ok(cache)
