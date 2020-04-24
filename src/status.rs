@@ -350,9 +350,9 @@ mod test {
         }
     }
 
-    fn get_heartbeat_msgs(recency: Duration) -> HeartbeatValidatorMessage {
+    fn get_heartbeat_msg(recency: Duration, validator_id: ValidatorId) -> HeartbeatValidatorMessage {
         HeartbeatValidatorMessage {
-            from: DUMMY_VALIDATOR_LEADER.id,
+            from: validator_id,
             received: Utc::now() - recency,
             msg: MessageTypes::Heartbeat(Heartbeat {
                 signature: String::from("0x0"),
@@ -362,7 +362,7 @@ mod test {
         }
     }
 
-    fn get_newstate_msg() -> NewStateValidatorMessage {
+    fn get_new_state_msg() -> NewStateValidatorMessage {
         NewStateValidatorMessage {
             from: DUMMY_VALIDATOR_LEADER.id,
             received: Utc::now(),
@@ -430,8 +430,9 @@ mod test {
 
     #[test]
     fn leader_has_no_messages() {
+        let channel = DUMMY_CHANNEL.clone();
         let approve_state = get_approve_state_msg();
-        let heartbeat = get_heartbeat_msgs(Duration::minutes(0));
+        let heartbeat = get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id);
         let messages = Messages {
             leader: LastApprovedResponse {
                 last_approved: None,
@@ -456,8 +457,9 @@ mod test {
 
     #[test]
     fn follower_has_no_messages() {
-        let heartbeat = get_heartbeat_msgs(Duration::minutes(0));
-        let new_state = get_newstate_msg();
+        let channel = DUMMY_CHANNEL.clone();
+        let heartbeat = get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id);
+        let new_state = get_new_state_msg();
 
         let messages = Messages {
             leader: LastApprovedResponse {
@@ -483,9 +485,10 @@ mod test {
 
     #[test]
     fn both_arrays_have_messages() {
-        let heartbeat_1 = get_heartbeat_msgs(Duration::minutes(0));
-        let heartbeat_2 = get_heartbeat_msgs(Duration::minutes(0));
-        let new_state = get_newstate_msg();
+        let channel = DUMMY_CHANNEL.clone();
+        let leader_heartbeats = vec![get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id)];
+        let follower_heartbeats = vec![get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id)];
+        let new_state = get_new_state_msg();
         let approve_state = get_approve_state_msg();
 
         let messages = Messages {
@@ -494,14 +497,14 @@ mod test {
                     new_state: Some(new_state),
                     approve_state: None,
                 }),
-                heartbeats: Some(vec![heartbeat_1]),
+                heartbeats: Some(leader_heartbeats),
             },
             follower: LastApprovedResponse {
                 last_approved: Some(LastApproved {
                     new_state: None,
                     approve_state: Some(approve_state),
                 }),
-                heartbeats: Some(vec![heartbeat_2]),
+                heartbeats: Some(follower_heartbeats),
             },
             recency: Duration::minutes(4),
         };
@@ -516,27 +519,24 @@ mod test {
     // is_disconnected()
     #[test]
     fn no_recent_hbs_on_both_sides() {
-        let server = SERVER_POOL.get_server();
-        let channel = get_test_channel(&server);
-        let heartbeat_1 = get_heartbeat_msgs(Duration::minutes(10));
-        let heartbeat_2 = get_heartbeat_msgs(Duration::minutes(10));
-        let new_state = get_newstate_msg();
-        let approve_state = get_approve_state_msg();
+        let channel = DUMMY_CHANNEL.clone();
+        let leader_heartbeats = vec![get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.leader().id)];
+        let follower_heartbeats = vec![get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.leader().id)];
 
         let messages = Messages {
             leader: LastApprovedResponse {
                 last_approved: Some(LastApproved {
-                    new_state: Some(new_state),
+                    new_state: None,
                     approve_state: None,
                 }),
-                heartbeats: Some(vec![heartbeat_1]),
+                heartbeats: Some(leader_heartbeats),
             },
             follower: LastApprovedResponse {
                 last_approved: Some(LastApproved {
                     new_state: None,
-                    approve_state: Some(approve_state),
+                    approve_state: None,
                 }),
-                heartbeats: Some(vec![heartbeat_2]),
+                heartbeats: Some(follower_heartbeats),
             },
             recency: Duration::minutes(4),
         };
@@ -550,17 +550,10 @@ mod test {
 
     #[test]
     fn no_recent_follower_hbs() {
-        let server = SERVER_POOL.get_server();
-        let channel = get_test_channel(&server);
-        let mut heartbeat_1 = get_heartbeat_msgs(Duration::minutes(10)); // not recent
-        heartbeat_1.from = channel.spec.validators.leader().id;
-        let mut heartbeat_2 = get_heartbeat_msgs(Duration::minutes(10));
-        heartbeat_2.from = channel.spec.validators.follower().id;
-        let mut heartbeat_3 = get_heartbeat_msgs(Duration::minutes(10));
-        heartbeat_3.from = channel.spec.validators.leader().id;
-        let mut heartbeat_4 = get_heartbeat_msgs(Duration::minutes(10));
-        heartbeat_4.from = channel.spec.validators.follower().id;
-        let new_state = get_newstate_msg();
+        let channel = DUMMY_CHANNEL.clone();
+        let leader_heartbeats = vec![get_heartbeat_msg(Duration::minutes(1), channel.spec.validators.leader().id), get_heartbeat_msg(Duration::minutes(1), channel.spec.validators.follower().id)];
+        let follower_heartbeats = vec![get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.leader().id), get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.follower().id)];
+        let new_state = get_new_state_msg();
         let approve_state = get_approve_state_msg();
 
         let messages = Messages {
@@ -569,14 +562,14 @@ mod test {
                     new_state: Some(new_state),
                     approve_state: None,
                 }),
-                heartbeats: Some(vec![heartbeat_1, heartbeat_2]),
+                heartbeats: Some(leader_heartbeats),
             },
             follower: LastApprovedResponse {
                 last_approved: Some(LastApproved {
                     new_state: None,
                     approve_state: Some(approve_state),
                 }),
-                heartbeats: Some(vec![heartbeat_3, heartbeat_4]),
+                heartbeats: Some(follower_heartbeats),
             },
             recency: Duration::minutes(4),
         };
@@ -589,16 +582,11 @@ mod test {
     }
 
     #[test]
-    fn no_recent_leader_hb_coming_from_follower() {
-        let server = SERVER_POOL.get_server();
-        let channel = get_test_channel(&server);
-        let mut heartbeat_1 = get_heartbeat_msgs(Duration::minutes(0));
-        heartbeat_1.from = channel.spec.validators.leader().id;
-        let mut heartbeat_2 = get_heartbeat_msgs(Duration::minutes(0));
-        heartbeat_2.from = channel.spec.validators.leader().id;
-        let mut heartbeat_3 = get_heartbeat_msgs(Duration::minutes(0));
-        heartbeat_3.from = channel.spec.validators.follower().id;
-        let new_state = get_newstate_msg();
+    fn no_hb_in_leader_where_from_points_to_follower() {
+        let channel = DUMMY_CHANNEL.clone();
+        let leader_heartbeats = vec![get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id)];
+        let follower_heartbeats = vec![get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id), get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.follower().id)];
+        let new_state = get_new_state_msg();
         let approve_state = get_approve_state_msg();
 
         let messages = Messages {
@@ -607,14 +595,14 @@ mod test {
                     new_state: Some(new_state),
                     approve_state: None,
                 }),
-                heartbeats: Some(vec![heartbeat_1]),
+                heartbeats: Some(leader_heartbeats),
             },
             follower: LastApprovedResponse {
                 last_approved: Some(LastApproved {
                     new_state: None,
                     approve_state: Some(approve_state),
                 }),
-                heartbeats: Some(vec![heartbeat_2, heartbeat_3]),
+                heartbeats: Some(follower_heartbeats),
             },
             recency: Duration::minutes(4),
         };
@@ -627,18 +615,12 @@ mod test {
     }
 
     #[test]
-    fn no_recent_follower_hb_coming_from_leader() {
-        let server = SERVER_POOL.get_server();
-        let channel = get_test_channel(&server);
+    fn no_hb_in_follower_where_from_points_to_leader() {
+        let channel = DUMMY_CHANNEL.clone();
+        let leader_heartbeats = vec![get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id), get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id)];
+        let follower_heartbeats = vec![get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.follower().id)];
 
-        let mut heartbeat_1 = get_heartbeat_msgs(Duration::minutes(0));
-        heartbeat_1.from = channel.spec.validators.leader().id;
-        let mut heartbeat_2 = get_heartbeat_msgs(Duration::minutes(0));
-        heartbeat_2.from = channel.spec.validators.follower().id;
-        let mut heartbeat_3 = get_heartbeat_msgs(Duration::minutes(0));
-        heartbeat_3.from = channel.spec.validators.follower().id;
-
-        let new_state = get_newstate_msg();
+        let new_state = get_new_state_msg();
         let approve_state = get_approve_state_msg();
 
         let messages = Messages {
@@ -647,14 +629,14 @@ mod test {
                     new_state: Some(new_state),
                     approve_state: None,
                 }),
-                heartbeats: Some(vec![heartbeat_1, heartbeat_2]),
+                heartbeats: Some(leader_heartbeats),
             },
             follower: LastApprovedResponse {
                 last_approved: Some(LastApproved {
                     new_state: None,
                     approve_state: Some(approve_state),
                 }),
-                heartbeats: Some(vec![heartbeat_3]),
+                heartbeats: Some(follower_heartbeats),
             },
             recency: Duration::minutes(4),
         };
@@ -668,17 +650,10 @@ mod test {
 
     #[test]
     fn recent_hbs_coming_from_both_validators() {
-        let server = SERVER_POOL.get_server();
-        let channel = get_test_channel(&server);
-        let mut heartbeat_1 = get_heartbeat_msgs(Duration::minutes(0));
-        heartbeat_1.from = channel.spec.validators.leader().id;
-        let mut heartbeat_2 = get_heartbeat_msgs(Duration::minutes(0));
-        heartbeat_2.from = channel.spec.validators.follower().id;
-        let mut heartbeat_3 = get_heartbeat_msgs(Duration::minutes(0));
-        heartbeat_3.from = channel.spec.validators.leader().id;
-        let mut heartbeat_4 = get_heartbeat_msgs(Duration::minutes(0));
-        heartbeat_4.from = channel.spec.validators.follower().id;
-        let new_state = get_newstate_msg();
+        let channel = DUMMY_CHANNEL.clone();
+        let leader_heartbeats = vec![get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id), get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.follower().id)];
+        let follower_heartbeats = vec![get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id), get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.follower().id)];
+        let new_state = get_new_state_msg();
         let approve_state = get_approve_state_msg();
 
         let messages = Messages {
@@ -687,14 +662,14 @@ mod test {
                     new_state: Some(new_state),
                     approve_state: None,
                 }),
-                heartbeats: Some(vec![heartbeat_1, heartbeat_2]),
+                heartbeats: Some(leader_heartbeats),
             },
             follower: LastApprovedResponse {
                 last_approved: Some(LastApproved {
                     new_state: None,
                     approve_state: Some(approve_state),
                 }),
-                heartbeats: Some(vec![heartbeat_3, heartbeat_4]),
+                heartbeats: Some(follower_heartbeats),
             },
             recency: Duration::minutes(4),
         };
