@@ -154,7 +154,7 @@ impl Cache {
 
     /// Reads the active campaigns and schedules a list of non-finalized campaigns
     /// for update from the Validators
-    
+
     /// Checks if campaign is finalized:
     /// If Yes:
     /// - adds it to the Finalized cache
