@@ -1,6 +1,6 @@
 use super::*;
 use crate::sentry_api::SentryApi;
-use chrono::{Duration, Utc};
+use chrono::{Duration, Utc, DateTime};
 use primitives::{
     sentry::{
         ApproveStateValidatorMessage, LastApproved, LastApprovedResponse, NewStateValidatorMessage,
@@ -11,8 +11,20 @@ use primitives::{
 };
 
 use httptest::{mappers::*, responders::*, Expectation, Server, ServerPool};
+use lazy_static::lazy_static;
 
 static SERVER_POOL: ServerPool = ServerPool::new(4);
+
+lazy_static! {
+    static ref FIVE_SECONDS_AGO: DateTime<Utc> = Utc::now() - Duration::seconds(5);
+    static ref FOUR_MINUTES: Duration = Duration::minutes(4);
+    static ref ZERO: Duration = Duration::zero();
+    static ref ONE_MINUTE: Duration = Duration::minutes(1);
+    static ref THREE_MINUTES: Duration = Duration::minutes(3);
+    static ref TEN_MINUTES: Duration = Duration::minutes(10);
+    static ref THREE_MINUTES_AGO: DateTime<Utc> = Utc::now() - Duration::minutes(3);
+    static ref TEN_MINUTES_AGO: DateTime<Utc> = Utc::now() - Duration::minutes(10);
+}
 
 fn get_request_channel(server: &Server) -> Channel {
     let mut channel = DUMMY_CHANNEL.clone();
@@ -70,7 +82,7 @@ mod is_finalized {
     async fn it_is_finalized_when_expired() {
         let server = SERVER_POOL.get_server();
         let mut channel = get_request_channel(&server);
-        channel.valid_until = Utc::now() - Duration::seconds(5);
+        channel.valid_until = *FIVE_SECONDS_AGO;
 
         let response = LastApprovedResponse {
             last_approved: None,
@@ -97,7 +109,7 @@ mod is_finalized {
     async fn it_is_finalized_when_in_withdraw_period() {
         let server = SERVER_POOL.get_server();
         let mut channel = get_request_channel(&server);
-        channel.spec.withdraw_period_start = Utc::now() - Duration::seconds(5);
+        channel.spec.withdraw_period_start = *FIVE_SECONDS_AGO;
 
         let response = LastApprovedResponse {
             last_approved: None,
@@ -216,12 +228,6 @@ mod is_finalized {
 mod is_offline {
     use super::*;
 
-    use lazy_static::lazy_static;
-
-    lazy_static! {
-        static ref RECENCY: Duration = Duration::minutes(4);
-    }
-
     fn get_messages(
         leader: Option<Vec<HeartbeatValidatorMessage>>,
         follower: Option<Vec<HeartbeatValidatorMessage>>,
@@ -235,7 +241,7 @@ mod is_offline {
                 last_approved: None,
                 heartbeats: follower,
             },
-            recency: *RECENCY,
+            recency: *FOUR_MINUTES,
         }
     }
 
@@ -261,7 +267,7 @@ mod is_offline {
         let leader = DUMMY_VALIDATOR_LEADER.id;
         let follower = DUMMY_VALIDATOR_FOLLOWER.id;
 
-        let leader_hb = get_heartbeat_msg(Duration::zero(), leader);
+        let leader_hb = get_heartbeat_msg(*ZERO, leader);
         let messages = get_messages(Some(vec![leader_hb]), None);
 
         assert!(
@@ -269,7 +275,7 @@ mod is_offline {
             "Offline: If `None` / empty heartbeats in the Follower!"
         );
 
-        let follower_hb = get_heartbeat_msg(Duration::zero(), follower);
+        let follower_hb = get_heartbeat_msg(*ZERO, follower);
 
         let messages = get_messages(None, Some(vec![follower_hb]));
 
@@ -283,7 +289,7 @@ mod is_offline {
     fn it_is_offline_when_it_has_old_validators_heartbeats() {
         let leader = DUMMY_VALIDATOR_LEADER.id;
         let follower = DUMMY_VALIDATOR_FOLLOWER.id;
-        let old_recency = *RECENCY + Duration::minutes(1);
+        let old_recency = *FOUR_MINUTES + *ONE_MINUTE;
         let old_leader_hb = get_heartbeat_msg(old_recency, leader);
         let old_follower_hb = get_heartbeat_msg(old_recency, follower);
 
@@ -299,8 +305,8 @@ mod is_offline {
     fn it_is_not_offline_when_it_has_recent_heartbeats() {
         let leader = DUMMY_VALIDATOR_LEADER.id;
         let follower = DUMMY_VALIDATOR_FOLLOWER.id;
-        let recent_leader_hb = get_heartbeat_msg(Duration::zero(), leader);
-        let recent_follower_hb = get_heartbeat_msg(Duration::zero(), follower);
+        let recent_leader_hb = get_heartbeat_msg(*ZERO, leader);
+        let recent_follower_hb = get_heartbeat_msg(*ZERO, follower);
 
         let messages = get_messages(Some(vec![recent_leader_hb]), Some(vec![recent_follower_hb]));
 
@@ -318,7 +324,7 @@ mod is_date_recent {
     #[test]
     fn now_date_is_recent() {
         let now = Utc::now();
-        let recency = Duration::minutes(4);
+        let recency = *FOUR_MINUTES;
         assert!(
             is_date_recent(recency, &now),
             "The present moment is a recent date!"
@@ -327,8 +333,8 @@ mod is_date_recent {
 
     #[test]
     fn slightly_past_is_recent() {
-        let recency = Duration::minutes(4);
-        let on_the_edge = Utc::now() - Duration::minutes(3);
+        let recency = *FOUR_MINUTES;
+        let on_the_edge = *THREE_MINUTES_AGO;
         assert!(
             is_date_recent(recency, &on_the_edge),
             "When date is just as old as the recency limit, it still counts as recent"
@@ -337,8 +343,8 @@ mod is_date_recent {
 
     #[test]
     fn old_date_is_not_recent() {
-        let recency = Duration::minutes(4);
-        let past = Utc::now() - Duration::minutes(10);
+        let recency = *FOUR_MINUTES;
+        let past = *TEN_MINUTES_AGO;
         assert_eq!(
             is_date_recent(recency, &past),
             false,
@@ -361,7 +367,7 @@ mod is_initializing {
                 last_approved: None,
                 heartbeats: Some(vec![]),
             },
-            recency: Duration::minutes(4),
+            recency: *FOUR_MINUTES,
         };
 
         assert_eq!(
@@ -374,7 +380,7 @@ mod is_initializing {
     #[test]
     fn leader_has_no_messages() {
         let approve_state = get_approve_state_msg();
-        let heartbeat = get_heartbeat_msg(Duration::minutes(0), IDS["leader"]);
+        let heartbeat = get_heartbeat_msg(*ZERO, IDS["leader"]);
         let messages = Messages {
             leader: LastApprovedResponse {
                 last_approved: None,
@@ -387,7 +393,7 @@ mod is_initializing {
                 }),
                 heartbeats: Some(vec![heartbeat]),
             },
-            recency: Duration::minutes(4),
+            recency: *FOUR_MINUTES,
         };
 
         assert_eq!(
@@ -399,7 +405,7 @@ mod is_initializing {
 
     #[test]
     fn follower_has_no_messages() {
-        let heartbeat = get_heartbeat_msg(Duration::minutes(0), IDS["leader"]);
+        let heartbeat = get_heartbeat_msg(*ZERO, IDS["leader"]);
         let new_state = get_new_state_msg();
 
         let messages = Messages {
@@ -414,7 +420,7 @@ mod is_initializing {
                 last_approved: None,
                 heartbeats: Some(vec![]),
             },
-            recency: Duration::minutes(4),
+            recency: *FOUR_MINUTES,
         };
 
         assert_eq!(
@@ -426,8 +432,8 @@ mod is_initializing {
 
     #[test]
     fn both_arrays_have_messages() {
-        let leader_heartbeats = vec![get_heartbeat_msg(Duration::minutes(0), IDS["leader"])];
-        let follower_heartbeats = vec![get_heartbeat_msg(Duration::minutes(0), IDS["leader"])];
+        let leader_heartbeats = vec![get_heartbeat_msg(*ZERO, IDS["leader"])];
+        let follower_heartbeats = vec![get_heartbeat_msg(*ZERO, IDS["leader"])];
         let new_state = get_new_state_msg();
         let approve_state = get_approve_state_msg();
 
@@ -446,7 +452,7 @@ mod is_initializing {
                 }),
                 heartbeats: Some(follower_heartbeats),
             },
-            recency: Duration::minutes(4),
+            recency: *FOUR_MINUTES,
         };
 
         assert_eq!(
@@ -464,11 +470,11 @@ mod is_disconnected {
     fn no_recent_hbs_on_both_sides() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![get_heartbeat_msg(
-            Duration::minutes(10),
+            *TEN_MINUTES,
             channel.spec.validators.leader().id,
         )];
         let follower_heartbeats = vec![get_heartbeat_msg(
-            Duration::minutes(10),
+            *TEN_MINUTES,
             channel.spec.validators.leader().id,
         )];
 
@@ -487,7 +493,7 @@ mod is_disconnected {
                 }),
                 heartbeats: Some(follower_heartbeats),
             },
-            recency: Duration::minutes(4),
+            recency: *FOUR_MINUTES,
         };
 
         assert_eq!(
@@ -501,12 +507,12 @@ mod is_disconnected {
     fn no_recent_follower_hbs() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
-            get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.leader().id),
-            get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.follower().id),
+            get_heartbeat_msg(*TEN_MINUTES, channel.spec.validators.leader().id),
+            get_heartbeat_msg(*TEN_MINUTES, channel.spec.validators.follower().id),
         ];
         let follower_heartbeats = vec![
-            get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.leader().id),
-            get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.follower().id),
+            get_heartbeat_msg(*TEN_MINUTES, channel.spec.validators.leader().id),
+            get_heartbeat_msg(*TEN_MINUTES, channel.spec.validators.follower().id),
         ];
 
         let new_state = get_new_state_msg();
@@ -527,7 +533,7 @@ mod is_disconnected {
                 }),
                 heartbeats: Some(follower_heartbeats),
             },
-            recency: Duration::minutes(4),
+            recency: *FOUR_MINUTES,
         };
 
         assert_eq!(
@@ -541,12 +547,12 @@ mod is_disconnected {
     fn no_hb_in_leader_where_from_points_to_follower() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![get_heartbeat_msg(
-            Duration::minutes(0),
+            *ZERO,
             channel.spec.validators.leader().id,
         )];
         let follower_heartbeats = vec![
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id),
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.follower().id),
+            get_heartbeat_msg(*ZERO, channel.spec.validators.leader().id),
+            get_heartbeat_msg(*ZERO, channel.spec.validators.follower().id),
         ];
 
         let new_state = get_new_state_msg();
@@ -567,7 +573,7 @@ mod is_disconnected {
                 }),
                 heartbeats: Some(follower_heartbeats),
             },
-            recency: Duration::minutes(4),
+            recency: *FOUR_MINUTES,
         };
 
         assert_eq!(
@@ -581,11 +587,11 @@ mod is_disconnected {
     fn no_hb_in_follower_where_from_points_to_leader() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id),
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id),
+            get_heartbeat_msg(*ZERO, channel.spec.validators.leader().id),
+            get_heartbeat_msg(*ZERO, channel.spec.validators.leader().id),
         ];
         let follower_heartbeats = vec![get_heartbeat_msg(
-            Duration::minutes(0),
+            *ZERO,
             channel.spec.validators.follower().id,
         )];
 
@@ -607,7 +613,7 @@ mod is_disconnected {
                 }),
                 heartbeats: Some(follower_heartbeats),
             },
-            recency: Duration::minutes(4),
+            recency: *FOUR_MINUTES,
         };
 
         assert_eq!(
@@ -621,12 +627,12 @@ mod is_disconnected {
     fn recent_hbs_coming_from_both_validators() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id),
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.follower().id),
+            get_heartbeat_msg(*ZERO, channel.spec.validators.leader().id),
+            get_heartbeat_msg(*ZERO, channel.spec.validators.follower().id),
         ];
         let follower_heartbeats = vec![
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id),
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.follower().id),
+            get_heartbeat_msg(*ZERO, channel.spec.validators.leader().id),
+            get_heartbeat_msg(*ZERO, channel.spec.validators.follower().id),
         ];
 
         let new_state = get_new_state_msg();
@@ -647,7 +653,7 @@ mod is_disconnected {
                 }),
                 heartbeats: Some(follower_heartbeats),
             },
-            recency: Duration::minutes(4),
+            recency: *FOUR_MINUTES,
         };
 
         assert_eq!(

@@ -48,6 +48,7 @@ impl From<MarketCampaign> for Campaign {
     }
 }
 
+
 impl Cache {
     const NON_FINALIZED: [StatusType; 9] = [
         Active,
