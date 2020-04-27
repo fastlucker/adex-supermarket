@@ -11,9 +11,11 @@ use slog::{error, info, Logger};
 mod cache;
 mod market;
 mod sentry_api;
+mod config;
 // @TODO: mod status; This is suppressing the warnings
 pub mod status;
 
+pub use config::{Config, Timeouts};
 pub use sentry_api::SentryApi;
 
 #[derive(Debug)]

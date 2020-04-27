@@ -2,8 +2,8 @@ use crate::sentry_api::SentryApi;
 use chrono::{DateTime, Duration, Utc};
 use primitives::{
     market::Status as MarketStatus,
-    sentry::{HeartbeatValidatorMessage, LastApproved, LastApprovedResponse},
-    validator::{Heartbeat, MessageTypes},
+    sentry::{HeartbeatValidatorMessage, LastApprovedResponse},
+    validator::MessageTypes,
     BalancesMap, BigNum, Channel, ValidatorId,
 };
 use reqwest::Error;
