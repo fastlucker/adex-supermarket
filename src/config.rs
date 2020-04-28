@@ -17,9 +17,10 @@ lazy_static! {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Config {
-    /// (Now - Recency) determins if a Datetime is recent or not
-    pub limited_identity_earnings_limit: BigNum,
+    #[serde(default)]
+    pub limited_identity_earnings_limit: Option<BigNum>,
     #[serde(deserialize_with = "seconds_to_std_duration")]
+    /// (Now - Recency) determins if a Datetime is recent or not
     pub recency: Duration,
     #[serde(deserialize_with = "seconds_to_std_duration")]
     pub fetch_campaigns_every: Duration,
