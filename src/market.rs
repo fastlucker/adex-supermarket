@@ -18,7 +18,6 @@ impl MarketApi {
     const MARKET_LIMIT: u64 = 500;
 
     pub fn new(market_url: MarketUrl, logger: Logger) -> Result<Self, Error> {
-        // @TODO: maybe add timeout?
         let client = Client::new();
 
         Ok(Self {
@@ -27,6 +26,10 @@ impl MarketApi {
             logger,
         })
     }
+
+    // pub async fn fetch_slot(&self) -> Result<(), Error> {
+
+    // }
 
     pub async fn fetch_campaigns(&self, statuses: &Statuses<'_>) -> Result<Vec<Campaign>, Error> {
         let mut campaigns = Vec::new();
