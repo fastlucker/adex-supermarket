@@ -1,4 +1,4 @@
-# if left out or commented out it won't be applied.r
+# if left out or commented out it won't be applied.
 # 100 DAI/TST
 limited_identity_earnings_limit = '100000000000000000000'
 

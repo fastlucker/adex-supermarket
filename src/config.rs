@@ -38,7 +38,7 @@ impl Config {
 
         match environment {
             "development" => Ok(DEVELOPMENT.clone()),
-            // "production" => Ok(PRODUCTION.clone()),
+            "production" => Ok(PRODUCTION.clone()),
             env => Err(ConfigError::Environment {
                 actual: env.to_string(),
             }),
