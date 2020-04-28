@@ -9,9 +9,9 @@ use http::Uri;
 use slog::{error, info, Logger};
 
 mod cache;
+pub mod config;
 mod market;
 mod sentry_api;
-mod config;
 // @TODO: mod status; This is suppressing the warnings
 pub mod status;
 
@@ -61,12 +61,17 @@ impl From<http::uri::InvalidUri> for Error {
     }
 }
 
-pub async fn serve(addr: SocketAddr, logger: Logger, market_url: String) -> Result<(), Error> {
+pub async fn serve(
+    addr: SocketAddr,
+    logger: Logger,
+    market_url: String,
+    config: Config,
+) -> Result<(), Error> {
     use hyper::service::{make_service_fn, service_fn};
 
     let client = Client::new();
 
-    let cache = spawn_fetch_campaigns(&market_url, logger.clone()).await?;
+    let cache = spawn_fetch_campaigns(&market_url, logger.clone(), config).await?;
 
     // And a MakeService to handle each connection...
     let make_service = make_service_fn(|_| {
@@ -131,7 +136,11 @@ async fn handle(
     }
 }
 
-async fn spawn_fetch_campaigns(market_uri: &str, logger: Logger) -> Result<Cache, reqwest::Error> {
+async fn spawn_fetch_campaigns(
+    market_uri: &str,
+    logger: Logger,
+    config: Config,
+) -> Result<Cache, reqwest::Error> {
     let cache = Cache::initialize(market_uri.into(), logger.clone()).await?;
     info!(
         &logger,
@@ -143,14 +152,16 @@ async fn spawn_fetch_campaigns(market_uri: &str, logger: Logger) -> Result<Cache
     // in order to keep discovering new campaigns.
     tokio::spawn(async move {
         use futures::stream::{select, StreamExt};
-        use tokio::time::{interval, Duration, Instant};
+        use tokio::time::{interval, Instant};
         info!(&logger, "Task for updating campaign has been spawned");
 
         // Every few seconds, we will update our active campaigns from the
         // validators (update their latest balance tree).
         // @TODO: Move to configuration
-        let new_duration = Duration::from_secs(20);
-        let update_duration = Duration::from_secs(5);
+        // let new_duration = config.cache_fetch_campaigns_every.try_into().unwrap();
+        // let update_duration = config.cache_update_campaigns_every.try_into().unwrap();
+        let new_duration = std::time::Duration::from_secs(20);
+        let update_duration = std::time::Duration::from_secs(5);
         let new_interval = interval(new_duration).map(TimeFor::New);
         let update_interval = interval(update_duration).map(TimeFor::Update);
 
