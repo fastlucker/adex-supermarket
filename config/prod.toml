@@ -1,11 +1,12 @@
-# [sec, nano sec]
-recency = [4 * 60, 0]
-# // 100 DAI/TST
-limited_identity_earnings_limit = 100 * 1_000_000_000_000_000_000
-cache_fetch_campaigns_every = [4 * 60, 0]
-cache_update_campaigns_every = [50, 0]
+# 100 DAI/TST
+limited_identity_earnings_limit = '100000000000000000000'
+
+# 4 minutes
+recency = 240
+cache_fetch_campaigns_every = 240
+cache_update_campaigns_every = 50
 
 [timeouts]
-cache_update_campaign_statuses = [40, 0]
-cache_fetch_campaigns_from_market = [20, 0]
-validator_request = [20, 0]
+cache_update_campaign_statuses = 40
+cache_fetch_campaigns_from_market = 20
+validator_request = 20
