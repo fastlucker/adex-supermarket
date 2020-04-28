@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use clap::{App, Arg};
 use supermarket::{serve, Config};
 
-use slog::Drain;
+use slog::{info, Drain};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -43,6 +43,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let drain = slog_async::Async::new(drain).build().fuse();
 
     let logger = slog::Logger::root(drain, slog::o!());
+
+    info!(&logger, "ENV: `{}`; {:#?}", environment, config);
 
     Ok(serve(addr, logger, market_url, config).await?)
 }

@@ -1,7 +1,7 @@
 use crate::{
     market::{MarketApi, MarketUrl, Statuses},
     status::{is_finalized, IsFinalized, Status},
-    SentryApi,
+    Config, SentryApi,
 };
 use primitives::{
     market::{Campaign as MarketCampaign, StatusType, StatusType::*},
@@ -62,10 +62,16 @@ impl Cache {
     ];
 
     /// Fetches all the campaigns from the Market and returns the Cache instance
-    pub async fn initialize(market_url: MarketUrl, logger: Logger) -> Result<Self, Error> {
+    pub async fn initialize(
+        market_url: MarketUrl,
+        logger: Logger,
+        config: Config,
+    ) -> Result<Self, Error> {
         let market = MarketApi::new(market_url, logger.clone())?;
-        let sentry = SentryApi::new()?;
+        let sentry = SentryApi::new(config.timeouts.validator_request)?;
 
+        // we don't need a timeout for the initial fetching of the campaigns
+        // while the applicatoin is still starting
         let all_campaigns = market.fetch_campaigns(&Statuses::All).await?;
 
         let (active, finalized, balances) = all_campaigns.into_iter().fold(
@@ -162,26 +168,32 @@ impl Cache {
     /// If No:
     /// - updates the latest Balances from the latest leader's NewState
     pub async fn update_campaigns(&self) {
-        let active_campaigns = self.active.read().await;
+        // we need this scope to drop the Read Lock on `self.active`
+        // before performing the finalize & update actions
+        let (finalize, update) = {
+            let active_campaigns = self.active.read().await;
 
-        let mut finalize = HashMap::new();
-        let mut update = HashMap::new();
-        for (id, campaign) in active_campaigns.iter() {
-            match self.campaign_action(campaign).await {
-                Ok((Action::Finalize, balances)) => {
-                    finalize.insert(*id, balances);
-                }
-                Ok((Action::Update, balances)) => {
-                    if !balances.is_empty() {
-                        update.insert(*id, balances);
+            let mut finalize = HashMap::new();
+            let mut update = HashMap::new();
+            for (id, campaign) in active_campaigns.iter() {
+                match self.campaign_action(campaign).await {
+                    Ok((Action::Finalize, balances)) => {
+                        finalize.insert(*id, balances);
                     }
-                }
-                Err(err) => error!(
-                    &self.logger,
-                    "Error checking if Campaign ({:?}) is finalized: {}", id, err
-                ),
-            };
-        }
+                    Ok((Action::Update, balances)) => {
+                        if !balances.is_empty() {
+                            update.insert(*id, balances);
+                        }
+                    }
+                    Err(err) => error!(
+                        &self.logger,
+                        "Error checking if Campaign ({:?}) is finalized: {}", id, err
+                    ),
+                };
+            }
+
+            (finalize, update)
+        };
 
         self.finalize_campaigns(finalize).await;
         self.update_campaigns_balances(update).await;
@@ -190,9 +202,10 @@ impl Cache {
     /// - Adds the Channel Id to the Finalized cache
     /// - Adds up the latest publishers' Balances (finalized_balances)
     async fn finalize_campaigns(&self, campaigns: HashMap<ChannelId, BalancesMap>) {
-        // Put in finalized
-        self.finalized.write().await.extend(campaigns.keys());
-
+        {
+            // Put in finalized
+            self.finalized.write().await.extend(campaigns.keys());
+        }
         let mut active = self.active.write().await;
         // Sum the balances in balances_from_finalized
         let mut finalized_balances = self.balance_from_finalized.write().await;

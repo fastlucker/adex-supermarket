@@ -141,7 +141,7 @@ async fn spawn_fetch_campaigns(
     logger: Logger,
     config: Config,
 ) -> Result<Cache, reqwest::Error> {
-    let cache = Cache::initialize(market_uri.into(), logger.clone()).await?;
+    let cache = Cache::initialize(market_uri.into(), logger.clone(), config.clone()).await?;
     info!(
         &logger,
         "Campaigns have been fetched from the Market & Cache is now initialized..."
@@ -152,18 +152,13 @@ async fn spawn_fetch_campaigns(
     // in order to keep discovering new campaigns.
     tokio::spawn(async move {
         use futures::stream::{select, StreamExt};
-        use tokio::time::{interval, Instant};
+        use tokio::time::{interval, timeout, Instant};
         info!(&logger, "Task for updating campaign has been spawned");
 
-        // Every few seconds, we will update our active campaigns from the
+        // Every X seconds, we will update our active campaigns from the
         // validators (update their latest balance tree).
-        // @TODO: Move to configuration
-        // let new_duration = config.cache_fetch_campaigns_every.try_into().unwrap();
-        // let update_duration = config.cache_update_campaigns_every.try_into().unwrap();
-        let new_duration = std::time::Duration::from_secs(20);
-        let update_duration = std::time::Duration::from_secs(5);
-        let new_interval = interval(new_duration).map(TimeFor::New);
-        let update_interval = interval(update_duration).map(TimeFor::Update);
+        let new_interval = interval(config.fetch_campaigns_every).map(TimeFor::New);
+        let update_interval = interval(config.update_campaigns_every).map(TimeFor::Update);
 
         enum TimeFor {
             New(Instant),
@@ -175,13 +170,30 @@ async fn spawn_fetch_campaigns(
         while let Some(time_for) = select_time.next().await {
             // @TODO: Timeout the action
             match time_for {
-                TimeFor::New(_) => match cache_spawn.fetch_new_campaigns().await {
-                    Err(e) => error!(&logger, "{}", e),
-                    _ => info!(&logger, "New Campaigns fetched from Market!"),
-                },
+                TimeFor::New(_) => {
+                    let timeout_duration = config.timeouts.cache_fetch_campaigns_from_market;
+
+                    match timeout(timeout_duration, cache_spawn.fetch_new_campaigns()).await {
+                        Err(_elapsed) => error!(
+                            &logger,
+                            "Fetching new Campaigns timed out";
+                            "allowed secs" => timeout_duration.as_secs()
+                        ),
+                        Ok(Err(e)) => error!(&logger, "{}", e),
+                        _ => info!(&logger, "New Campaigns fetched from Market!"),
+                    }
+                }
                 TimeFor::Update(_) => {
-                    cache_spawn.update_campaigns().await;
-                    info!(&logger, "Campaigns statuses updated from Validators!");
+                    let timeout_duration = config.timeouts.cache_update_campaign_statuses;
+
+                    match timeout(timeout_duration, cache_spawn.update_campaigns()).await {
+                        Ok(_) => info!(&logger, "Campaigns statuses updated from Validators!"),
+                        Err(_elapsed) => error!(
+                                &logger,
+                                "Updating Campaigns statuses timed out";
+                                "allowed secs" => timeout_duration.as_secs()
+                        ),
+                    }
                 }
             }
         }

@@ -1,5 +1,6 @@
 use primitives::{sentry::LastApprovedResponse, ValidatorDesc};
 use reqwest::{Client, Error};
+use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub struct SentryApi {
@@ -8,8 +9,8 @@ pub struct SentryApi {
 
 /// SentryApi talks directly to Sentry
 impl SentryApi {
-    pub fn new() -> Result<Self, Error> {
-        let client = Client::builder().build()?;
+    pub fn new(request_timeout: Duration) -> Result<Self, Error> {
+        let client = Client::builder().timeout(request_timeout).build()?;
 
         Ok(Self { client })
     }

@@ -22,9 +22,9 @@ pub struct Config {
     #[serde(deserialize_with = "seconds_to_std_duration")]
     pub recency: Duration,
     #[serde(deserialize_with = "seconds_to_std_duration")]
-    pub cache_fetch_campaigns_every: Duration,
+    pub fetch_campaigns_every: Duration,
     #[serde(deserialize_with = "seconds_to_std_duration")]
-    pub cache_update_campaigns_every: Duration,
+    pub update_campaigns_every: Duration,
     pub timeouts: Timeouts,
 }
 
@@ -48,10 +48,14 @@ impl Config {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Timeouts {
     #[serde(deserialize_with = "seconds_to_std_duration")]
+    /// Timeout Duration for the Cache updating all campaigns statuses
+    /// by querying the validators and etc.
     pub cache_update_campaign_statuses: Duration,
     #[serde(deserialize_with = "seconds_to_std_duration")]
+    /// Timeout Duration for the Cache fetching new campaigns from the Market
     pub cache_fetch_campaigns_from_market: Duration,
     #[serde(deserialize_with = "seconds_to_std_duration")]
+    /// Timeout for querying a single Validator endpoint
     pub validator_request: Duration,
 }
 

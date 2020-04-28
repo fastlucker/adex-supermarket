@@ -3,8 +3,8 @@ limited_identity_earnings_limit = '100000000000000000000'
 
 # 4 minutes
 recency = 240
-cache_fetch_campaigns_every = 60
-cache_update_campaigns_every = 20
+fetch_campaigns_every = 60
+update_campaigns_every = 20
 
 [timeouts]
 cache_update_campaign_statuses = 10
