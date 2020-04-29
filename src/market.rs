@@ -27,10 +27,6 @@ impl MarketApi {
         })
     }
 
-    // pub async fn fetch_slot(&self) -> Result<(), Error> {
-
-    // }
-
     pub async fn fetch_campaigns(&self, statuses: &Statuses<'_>) -> Result<Vec<Campaign>, Error> {
         let mut campaigns = Vec::new();
         let mut skip: u64 = 0;
