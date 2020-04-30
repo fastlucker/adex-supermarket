@@ -1,5 +1,5 @@
 use crate::{
-    market::{MarketApi, MarketUrl, Statuses},
+    market::{MarketApi, Statuses},
     status::{is_finalized, IsFinalized, Status},
     SentryApi,
 };
@@ -62,8 +62,7 @@ impl Cache {
     ];
 
     /// Fetches all the campaigns from the Market and returns the Cache instance
-    pub async fn initialize(market_url: MarketUrl, logger: Logger) -> Result<Self, Error> {
-        let market = MarketApi::new(market_url, logger.clone())?;
+    pub(crate) async fn initialize(market: Arc<MarketApi>, logger: Logger) -> Result<Self, Error> {
         let sentry = SentryApi::new()?;
 
         let all_campaigns = market.fetch_campaigns(&Statuses::All).await?;
@@ -100,7 +99,7 @@ impl Cache {
         );
 
         Ok(Self {
-            market: Arc::new(market),
+            market,
             active: Arc::new(RwLock::new(active)),
             finalized: Arc::new(RwLock::new(finalized)),
             balance_from_finalized: Arc::new(RwLock::new(balances)),
@@ -178,7 +177,7 @@ impl Cache {
                 }
                 Err(err) => error!(
                     &self.logger,
-                    "Error checking if Campaign ({:?}) is finalized: {}", id, err
+                    "Error checking if Campaign ({:?}) is finalized", id; "error" => ?err
                 ),
             };
         }
