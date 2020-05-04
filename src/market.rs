@@ -3,9 +3,9 @@ use primitives::{
     AdSlot, AdUnit,
 };
 use reqwest::{Client, Error, StatusCode};
+use serde::Deserialize;
 use slog::{info, Logger};
 use std::fmt;
-use serde::Deserialize;
 
 pub(crate) type MarketUrl = String;
 pub type Result<T> = std::result::Result<T, Error>;
@@ -61,9 +61,7 @@ impl MarketApi {
 
         loop {
             // if one page fail, simply return the error for now
-            let mut page_results = self
-                .fetch_units_page(&ad_slot.ad_type, skip)
-                .await?;
+            let mut page_results = self.fetch_units_page(&ad_slot.ad_type, skip).await?;
             // get the count before appending the page results to all
             let count = page_results.len() as u64;
 
@@ -87,7 +85,12 @@ impl MarketApi {
     // @see: https://github.com/AdExNetwork/adex-market/issues/110
     /// `skip` - how many records it should skip (pagination)
     async fn fetch_units_page(&self, ad_type: &str, skip: u64) -> Result<Vec<AdUnit>> {
-        let url = format!("{}/units?limit={}&skip={}", self.market_url, Self::MARKET_AD_UNITS_LIMIT, skip);
+        let url = format!(
+            "{}/units?limit={}&skip={}",
+            self.market_url,
+            Self::MARKET_AD_UNITS_LIMIT,
+            skip
+        );
         let response = self.client.get(&url).send().await?;
 
         let all_ad_units: Vec<AdUnit> = response.json().await?;
@@ -106,9 +109,7 @@ impl MarketApi {
 
         loop {
             // if one page fail, simply return the error for now
-            let mut page_results = self
-                .fetch_campaigns_page(&statuses, skip)
-                .await?;
+            let mut page_results = self.fetch_campaigns_page(&statuses, skip).await?;
             // get the count before appending the page results to all
             let count = page_results.len() as u64;
 
@@ -136,7 +137,10 @@ impl MarketApi {
     ) -> Result<Vec<Campaign>> {
         let url = format!(
             "{}/campaigns?{}&limit={}&skip={}",
-            self.market_url, statuses, Self::MARKET_CAMPAIGNS_LIMIT, skip
+            self.market_url,
+            statuses,
+            Self::MARKET_CAMPAIGNS_LIMIT,
+            skip
         );
         let response = self.client.get(&url).send().await?;
 

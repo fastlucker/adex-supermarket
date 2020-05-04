@@ -122,7 +122,7 @@ async fn handle(
                         info!(&logger, "Fetched AdSlot"; "AdSlot" => ipfs);
 
                         ad_slot
-                    },
+                    }
                     None => {
                         info!(
                             &logger,
@@ -130,8 +130,8 @@ async fn handle(
                             ipfs;
                             "AdSlot" => ipfs
                         );
-                        return Ok(not_found())
-                    },
+                        return Ok(not_found());
+                    }
                 };
 
                 let units = market.fetch_units(&ad_slot).await?;
@@ -140,12 +140,14 @@ async fn handle(
 
                 info!(&logger, "Fetched AdUnits for AdSlot"; "AdSlot" => ipfs, "AdUnits" => ?&units_ipfses);
 
-
-
                 // Applying targeting.
                 // Optional but should always be applied unless there is a `?noTargeting` query parameter provided.
                 // It should find matches between the unit targeting and the slot tags. More details on how to implement after the targeting overhaul
-                let _apply_targeting = req.uri().query().map(|q| q.contains("noTargeting")).unwrap_or(true);
+                let _apply_targeting = req
+                    .uri()
+                    .query()
+                    .map(|q| q.contains("noTargeting"))
+                    .unwrap_or(true);
 
                 // @TODO: Apply trageting!
                 // @TODO: https://github.com/AdExNetwork/adex-supermarket/issues/9
@@ -164,7 +166,7 @@ async fn handle(
                 .map(ToOwned::to_owned)
                 .unwrap_or_else(|| PathAndQuery::from_static(""));
 
-                let uri = format!("{}{}", market.market_url, path_and_query);
+            let uri = format!("{}{}", market.market_url, path_and_query);
 
             *req.uri_mut() = uri.parse::<Uri>()?;
 
@@ -180,7 +182,6 @@ async fn handle(
                     service_unavaiable()
                 }
             };
-
 
             Ok(proxy_response)
         }
@@ -240,14 +241,14 @@ async fn spawn_fetch_campaigns(
 
 fn not_found() -> Response<Body> {
     Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .body(Body::empty())
-            .expect("Not Found response should be valid")
+        .status(StatusCode::NOT_FOUND)
+        .body(Body::empty())
+        .expect("Not Found response should be valid")
 }
 
 fn service_unavaiable() -> Response<Body> {
     Response::builder()
-            .status(StatusCode::SERVICE_UNAVAILABLE)
-            .body(Body::empty())
-            .expect("Bad Request response should be valid")
+        .status(StatusCode::SERVICE_UNAVAILABLE)
+        .body(Body::empty())
+        .expect("Bad Request response should be valid")
 }
