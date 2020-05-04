@@ -142,11 +142,12 @@ async fn handle(
 
                 // Applying targeting.
                 // Optional but should always be applied unless there is a `?noTargeting` query parameter provided.
-                // It should find matches between the unit targeting and the slot tags. More details on how to implement after the targeting overhaul
+                // It should find matches between the unit targeting and the slot tags.
+                // More details on how to implement after the targeting overhaul
                 let _apply_targeting = req
                     .uri()
                     .query()
-                    .map(|q| q.contains("noTargeting"))
+                    .map(|q| !q.contains("noTargeting"))
                     .unwrap_or(true);
 
                 // @TODO: Apply trageting!

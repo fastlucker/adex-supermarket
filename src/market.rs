@@ -22,6 +22,7 @@ impl MarketApi {
     /// Limit the value to MAX(500)
     const MARKET_CAMPAIGNS_LIMIT: u64 = 500;
     /// The limit of AdUnits per page when fetching
+    /// It should always be > 1
     const MARKET_AD_UNITS_LIMIT: u64 = 1_000;
 
     pub fn new(market_url: MarketUrl, logger: Logger) -> Result<Self> {
@@ -45,7 +46,6 @@ impl MarketApi {
         let url = format!("{}/slots/{}", self.market_url, ipfs);
         let response = self.client.get(&url).send().await?;
 
-        // Handle
         if let StatusCode::NOT_FOUND = response.status() {
             Ok(None)
         } else {
