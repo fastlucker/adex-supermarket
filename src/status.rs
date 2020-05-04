@@ -2,8 +2,8 @@ use crate::sentry_api::SentryApi;
 use chrono::{DateTime, Duration, Utc};
 use primitives::{
     market::Status as MarketStatus,
-    sentry::{HeartbeatValidatorMessage, NewStateValidatorMessage, ApproveStateValidatorMessage, LastApproved, LastApprovedResponse},
-    validator::{Heartbeat, ApproveState, MessageTypes},
+    sentry::{HeartbeatValidatorMessage, NewStateValidatorMessage, LastApprovedResponse},
+    validator::MessageTypes,
     BalancesMap, BigNum, Channel, ValidatorId,
 };
 use reqwest::Error;
@@ -277,7 +277,7 @@ pub async fn get_status(sentry: &SentryApi, channel: &Channel) -> Result<Status,
     let disconnected = is_disconnected(&channel, &messages);
 
     // impl: isInvalid
-    let rejected_state = is_rejected_state(&messages, &latest_new_state);
+    let rejected_state = is_rejected_state(&messages, &latest_new_state[0]);
 
     // impl: isUnhealthy
     let unhealthy = is_unhealthy(&messages);
@@ -340,7 +340,7 @@ fn is_disconnected(channel: &Channel, messages: &Messages) -> bool {
     !(messages.has_recent_leader_hb_from(follower) && messages.has_recent_follower_hb_from(leader))
 }
 
-fn is_rejected_state(messages: &Messages, latest_new_state: &Vec<NewStateValidatorMessage>) -> bool {
+fn is_rejected_state(messages: &Messages, latest_new_state: &NewStateValidatorMessage) -> bool {
     if !messages.has_follower_approve_state() && messages.has_leader_new_state() {
         return true;
     }
@@ -353,8 +353,6 @@ fn is_rejected_state(messages: &Messages, latest_new_state: &Vec<NewStateValidat
         .new_state
         .as_ref()
         .unwrap();
-
-    let latest_new_state = &latest_new_state[0];
 
     let date_diff = new_state_leader.received - latest_new_state.received;
     let is_last_approved_old = date_diff < Duration::zero();
@@ -377,7 +375,7 @@ fn is_unhealthy(messages: &Messages) -> bool {
             MessageTypes::ApproveState(latest_approve_state) => Some(latest_approve_state),
             _ => None,
         };
-        return latest_approve_state.unwrap().is_healthy
+        return !latest_approve_state.unwrap().is_healthy
     }
     false
 }
