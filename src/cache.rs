@@ -303,7 +303,7 @@ mod test {
         let logger = slog::Logger::root(drain, slog::o!());
 
         let market = MarketApi::new("http://localhost:8005".into(), logger.clone())?;
-        let sentry = SentryApi::new()?;
+        let sentry = SentryApi::new(std::time::Duration::from_secs(60))?;
 
         let cache = Cache {
             active: Cached::new(RwLock::new(active)),

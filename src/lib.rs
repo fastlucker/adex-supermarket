@@ -77,7 +77,7 @@ pub async fn serve(
     let client = Client::new();
     let market = Arc::new(MarketApi::new(market_url, logger.clone())?);
 
-    let cache = spawn_fetch_campaigns(market.clone(), logger.clone()), config).await?;
+    let cache = spawn_fetch_campaigns(market.clone(), logger.clone(), config).await?;
 
     // And a MakeService to handle each connection...
     let make_service = make_service_fn(|_| {
@@ -202,7 +202,7 @@ async fn spawn_fetch_campaigns(
     logger: Logger,
     config: Config,
 ) -> Result<Cache, reqwest::Error> {
-    let cache = Cache::initialize(market, logger.clone()).await?;
+    let cache = Cache::initialize(market, logger.clone(), config.clone()).await?;
     info!(
         &logger,
         "Campaigns have been fetched from the Market & Cache is now initialized..."
