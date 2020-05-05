@@ -2,7 +2,7 @@
 #![deny(rust_2018_idioms)]
 use std::net::SocketAddr;
 
-use clap::{App, Arg};
+use clap::{crate_version, App, Arg};
 use supermarket::{serve, Config};
 
 use slog::{info, Drain};
@@ -10,7 +10,7 @@ use slog::{info, Drain};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = App::new("Supermarket")
-        .version("0.1.0")
+        .version(crate_version!())
         .arg(
             Arg::with_name("marketUrl")
                 .short("m")

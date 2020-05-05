@@ -4,8 +4,9 @@ use cache::Cache;
 use hyper::{client::HttpConnector, Body, Client, Method, Request, Response, Server};
 use std::fmt;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
-use http::Uri;
+use http::{StatusCode, Uri};
 use slog::{error, info, Logger};
 
 mod cache;
@@ -15,8 +16,12 @@ mod sentry_api;
 // @TODO: mod status; This is suppressing the warnings
 pub mod status;
 
+use market::MarketApi;
+
 pub use config::{Config, Timeouts};
 pub use sentry_api::SentryApi;
+
+static ROUTE_UNITS_FOR_SLOT: &str = "/units-for-slot/";
 
 #[derive(Debug)]
 pub enum Error {
@@ -70,22 +75,23 @@ pub async fn serve(
     use hyper::service::{make_service_fn, service_fn};
 
     let client = Client::new();
+    let market = Arc::new(MarketApi::new(market_url, logger.clone())?);
 
-    let cache = spawn_fetch_campaigns(&market_url, logger.clone(), config).await?;
+    let cache = spawn_fetch_campaigns(market.clone(), logger.clone()), config).await?;
 
     // And a MakeService to handle each connection...
     let make_service = make_service_fn(|_| {
         let client = client.clone();
         let cache = cache.clone();
         let logger = logger.clone();
-        let market_url = market_url.clone();
+        let market = market.clone();
         async move {
             Ok::<_, Error>(service_fn(move |req| {
                 let client = client.clone();
                 let cache = cache.clone();
-                let market_url = market_url.clone();
+                let market = market.clone();
                 let logger = logger.clone();
-                async move { handle(req, cache, client, logger, market_url).await }
+                async move { handle(req, cache, client, logger, market).await }
             }))
         }
     });
@@ -106,16 +112,62 @@ async fn handle(
     _cache: Cache,
     client: Client<HttpConnector>,
     logger: Logger,
-    market_uri: String,
+    market: Arc<MarketApi>,
 ) -> Result<Response<Body>, Error> {
-    match (req.uri().path(), req.method()) {
-        ("/units-for-slot", &Method::GET) => {
-            info!(&logger, "/units-for-slot requested");
-            // @TODO: Implement route and caching
-            Ok(Response::new(Body::from("/units-for-slot")))
+    let is_units_for_slot = req.uri().path().starts_with(ROUTE_UNITS_FOR_SLOT);
+
+    match (is_units_for_slot, req.method()) {
+        (true, &Method::GET) => {
+            let ipfs = req.uri().path().trim_start_matches(ROUTE_UNITS_FOR_SLOT);
+
+            if ipfs.is_empty() {
+                Ok(not_found())
+            } else {
+                let ad_slot_result = market.fetch_slot(&ipfs).await?;
+
+                let ad_slot = match ad_slot_result {
+                    Some(ad_slot) => {
+                        info!(&logger, "Fetched AdSlot"; "AdSlot" => ipfs);
+
+                        ad_slot
+                    }
+                    None => {
+                        info!(
+                            &logger,
+                            "AdSlot ({}) not found in Market",
+                            ipfs;
+                            "AdSlot" => ipfs
+                        );
+                        return Ok(not_found());
+                    }
+                };
+
+                let units = market.fetch_units(&ad_slot).await?;
+
+                let units_ipfses: Vec<String> = units.iter().map(|au| au.ipfs.clone()).collect();
+
+                info!(&logger, "Fetched AdUnits for AdSlot"; "AdSlot" => ipfs, "AdUnits" => ?&units_ipfses);
+
+                // Applying targeting.
+                // Optional but should always be applied unless there is a `?noTargeting` query parameter provided.
+                // It should find matches between the unit targeting and the slot tags.
+                // More details on how to implement after the targeting overhaul
+                let _apply_targeting = req
+                    .uri()
+                    .query()
+                    .map(|q| !q.contains("noTargeting"))
+                    .unwrap_or(true);
+
+                // @TODO: Apply trageting!
+                // @TODO: https://github.com/AdExNetwork/adex-supermarket/issues/9
+
+                Ok(Response::new(Body::from("")))
+            }
         }
-        _ => {
+        (_, method) => {
             use http::uri::PathAndQuery;
+
+            let method = method.clone();
 
             let path_and_query = req
                 .uri()
@@ -123,13 +175,22 @@ async fn handle(
                 .map(ToOwned::to_owned)
                 .unwrap_or_else(|| PathAndQuery::from_static(""));
 
-            let uri = format!("{}{}", market_uri, path_and_query).parse::<Uri>()?;
+            let uri = format!("{}{}", market.market_url, path_and_query);
 
-            *req.uri_mut() = uri;
+            *req.uri_mut() = uri.parse::<Uri>()?;
 
-            let proxy_response = client.request(req).await?;
+            let proxy_response = match client.request(req).await {
+                Ok(response) => {
+                    info!(&logger, "Proxied request to market"; "uri" => uri, "method" => %method);
 
-            info!(&logger, "Proxied request to market");
+                    response
+                }
+                Err(err) => {
+                    error!(&logger, "Proxying request to market failed"; "uri" => uri, "method" => %method, "error" => ?&err);
+
+                    service_unavaiable()
+                }
+            };
 
             Ok(proxy_response)
         }
@@ -137,11 +198,11 @@ async fn handle(
 }
 
 async fn spawn_fetch_campaigns(
-    market_uri: &str,
+    market: Arc<MarketApi>,
     logger: Logger,
     config: Config,
 ) -> Result<Cache, reqwest::Error> {
-    let cache = Cache::initialize(market_uri.into(), logger.clone(), config.clone()).await?;
+    let cache = Cache::initialize(market, logger.clone()).await?;
     info!(
         &logger,
         "Campaigns have been fetched from the Market & Cache is now initialized..."
@@ -200,4 +261,18 @@ async fn spawn_fetch_campaigns(
     });
 
     Ok(cache)
+}
+
+fn not_found() -> Response<Body> {
+    Response::builder()
+        .status(StatusCode::NOT_FOUND)
+        .body(Body::empty())
+        .expect("Not Found response should be valid")
+}
+
+fn service_unavaiable() -> Response<Body> {
+    Response::builder()
+        .status(StatusCode::SERVICE_UNAVAILABLE)
+        .body(Body::empty())
+        .expect("Bad Request response should be valid")
 }
