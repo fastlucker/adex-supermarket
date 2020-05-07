@@ -669,12 +669,12 @@ mod is_rejected_state {
     fn new_state_but_no_approve_state() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id),
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.follower().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
         ];
         let follower_heartbeats = vec![
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id),
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.follower().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
         ];
 
         let new_state = get_new_state_msg();
@@ -708,12 +708,12 @@ mod is_rejected_state {
     fn last_approved_new_state_is_outdated() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id),
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.follower().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
         ];
         let follower_heartbeats = vec![
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id),
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.follower().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
         ];
 
         let mut new_state = get_new_state_msg();
@@ -751,18 +751,18 @@ mod is_rejected_state {
     fn recent_new_state_and_approve_state() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id),
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.follower().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
         ];
         let follower_heartbeats = vec![
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id),
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.follower().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
         ];
 
         let mut new_state = get_new_state_msg();
         new_state.received = Utc::now() - Duration::minutes(5);
         let mut latest_new_state = get_new_state_msg();
-        latest_new_state.received = Utc::now() - Duration::minutes(0);
+        latest_new_state.received = Utc::now() - Duration::zero();
         let approve_state = get_approve_state_msg(true);
 
         let messages = Messages {
@@ -794,18 +794,18 @@ mod is_rejected_state {
     fn latest_new_state_is_very_new() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id),
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.follower().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
         ];
         let follower_heartbeats = vec![
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id),
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.follower().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
         ];
 
         let mut new_state = get_new_state_msg();
         new_state.received = Utc::now() - Duration::minutes(5);
         let mut latest_new_state = get_new_state_msg();
-        latest_new_state.received = Utc::now() - Duration::minutes(0);
+        latest_new_state.received = Utc::now() - Duration::zero();
         let approve_state = get_approve_state_msg(true);
 
         let messages = Messages {
@@ -836,12 +836,12 @@ mod is_rejected_state {
     fn approved_and_latest_new_state_are_the_same() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id),
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.follower().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
         ];
         let follower_heartbeats = vec![
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id),
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.follower().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
         ];
 
         let five_min_ago = Utc::now() - Duration::minutes(5);
@@ -884,12 +884,12 @@ mod is_unhealthy {
     fn approve_state_is_unhealthy() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id),
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.follower().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
         ];
         let follower_heartbeats = vec![
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id),
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.follower().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
         ];
 
         let new_state = get_new_state_msg();
@@ -924,12 +924,12 @@ mod is_unhealthy {
     fn approve_state_is_healthy() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id),
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.follower().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
         ];
         let follower_heartbeats = vec![
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id),
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.follower().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
         ];
 
         let new_state = get_new_state_msg();
@@ -964,12 +964,12 @@ mod is_unhealthy {
     fn no_recent_new_state_messages() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id),
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.follower().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
         ];
         let follower_heartbeats = vec![
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.leader().id),
-            get_heartbeat_msg(Duration::minutes(0), channel.spec.validators.follower().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
         ];
 
         let approve_state = get_approve_state_msg(false);

@@ -2,7 +2,7 @@ use crate::sentry_api::SentryApi;
 use chrono::{DateTime, Duration, Utc};
 use primitives::{
     market::Status as MarketStatus,
-    sentry::{HeartbeatValidatorMessage, NewStateValidatorMessage, LastApprovedResponse},
+    sentry::{HeartbeatValidatorMessage, NewStateValidatorMessage, LastApprovedResponse, ValidatorMessage},
     validator::MessageTypes,
     BalancesMap, BigNum, Channel, ValidatorId,
 };
@@ -256,8 +256,6 @@ pub async fn get_status(sentry: &SentryApi, channel: &Channel) -> Result<Status,
     let leader = channel.spec.validators.leader();
     let follower_la = sentry.get_last_approved(&follower).await?;
 
-    let latest_new_state = sentry.get_latest_new_state(&leader).await?;
-
     // setup the messages for the checks
     let messages = Messages {
         leader: *leader_la,
@@ -277,7 +275,7 @@ pub async fn get_status(sentry: &SentryApi, channel: &Channel) -> Result<Status,
     let disconnected = is_disconnected(&channel, &messages);
 
     // impl: isInvalid
-    let rejected_state = is_rejected_state(&messages, &latest_new_state[0]);
+    let rejected_state = is_rejected_state(&channel, &messages, &sentry).await;
 
     // impl: isUnhealthy
     let unhealthy = is_unhealthy(&messages);
@@ -340,21 +338,31 @@ fn is_disconnected(channel: &Channel, messages: &Messages) -> bool {
     !(messages.has_recent_leader_hb_from(follower) && messages.has_recent_follower_hb_from(leader))
 }
 
-fn is_rejected_state(messages: &Messages, latest_new_state: &NewStateValidatorMessage) -> bool {
-    if !messages.has_follower_approve_state() && messages.has_leader_new_state() {
-        return true;
-    }
-    if !messages.has_leader_new_state() {
-        return false
-    }
-    let new_state_leader: &NewStateValidatorMessage = messages.leader.last_approved
-        .as_ref()
+async fn is_rejected_state(channel: &Channel, messages: &Messages, sentry: &SentryApi) -> bool {
+    let validator_messages = sentry.get_latest_new_state(channel.spec.validators.leader())
+        .await
         .unwrap()
-        .new_state
-        .as_ref()
-        .unwrap();
+        .validator_messages;
+    if validator_messages.is_empty() {
+        return false; // Not 100% sure
+    }
+    let latest_new_state = match &validator_messages[0].msg {
+        MessageTypes::NewState(validator_messages[0]) => Some(validator_messages[0]),
+        _ => None,
+    }
+    .unwrap();
 
-    let date_diff = new_state_leader.received - latest_new_state.received;
+    let leader_new_state = match (messages.has_follower_approve_state(), messages.has_leader_new_state()) {
+        (false, true) => return true,
+        (_, false) => return false,
+        _ => messages.leader.last_approved
+            .as_ref()
+            .and_then(|last_approved| last_approved.new_state.as_ref())
+            .and_then(|new_state| Some(new_state))
+            .unwrap()
+    };
+
+    let date_diff = leader_new_state.received - latest_new_state.received;
     let is_last_approved_old = date_diff < Duration::zero();
     let is_latest_new_state_a_minute_old = (Utc::now() - latest_new_state.received) > Duration::minutes(1);
 
@@ -367,15 +375,14 @@ fn is_unhealthy(messages: &Messages) -> bool {
             .follower
             .last_approved
             .as_ref()
-            .unwrap()
-            .approve_state
-            .as_ref()
+            .and_then(|last_approved| last_approved.new_state.as_ref())
+            .and_then(|approve_state| match &approve_state.msg {
+                MessageTypes::ApproveState(approve_state) => Some(approve_state),
+                _ => None,
+            })
             .unwrap();
-        let latest_approve_state = match &latest_approve_state.msg {
-            MessageTypes::ApproveState(latest_approve_state) => Some(latest_approve_state),
-            _ => None,
-        };
-        return !latest_approve_state.unwrap().is_healthy
+
+        return !latest_approve_state.is_healthy
     }
     false
 }

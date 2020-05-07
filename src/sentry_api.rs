@@ -1,4 +1,4 @@
-use primitives::{sentry::{LastApprovedResponse, NewStateValidatorMessage}, ValidatorDesc};
+use primitives::{sentry::{LastApprovedResponse, ValidatorMessageResponse}, ValidatorDesc};
 use reqwest::{Client, Error};
 
 #[derive(Debug, Clone)]
@@ -27,8 +27,8 @@ impl SentryApi {
     pub async fn get_latest_new_state(
         &self,
         validator: &ValidatorDesc,
-    ) -> Result<Vec<NewStateValidatorMessage>, Error> {
-        let url = format!("{}/validator-messages/{}/NewState", validator.url, validator.id);
+    ) -> Result<ValidatorMessageResponse, Error> {
+        let url = format!("{}/validator-messages/{}/NewState?limit=1", validator.url, validator.id);
         let response = self.client.get(&url).send().await?;
 
         response.json().await
