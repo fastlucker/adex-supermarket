@@ -872,7 +872,7 @@ mod is_rejected_state {
         assert_eq!(
             is_rejected_state(&messages, &latest_new_state),
             false,
-            "Last approved new state and latest new state are the samme message and it is older than a minute"
+            "Last approved new state and latest new state are the same message and it is older than a minute"
         )
     }
 }

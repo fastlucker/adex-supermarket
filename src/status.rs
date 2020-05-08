@@ -2,7 +2,7 @@ use crate::sentry_api::SentryApi;
 use chrono::{DateTime, Duration, Utc};
 use primitives::{
     market::Status as MarketStatus,
-    sentry::{HeartbeatValidatorMessage, NewStateValidatorMessage, LastApprovedResponse, ValidatorMessage},
+    sentry::{HeartbeatValidatorMessage, LastApprovedResponse},
     validator::MessageTypes,
     BalancesMap, BigNum, Channel, ValidatorId,
 };
@@ -253,7 +253,6 @@ pub async fn get_status(sentry: &SentryApi, channel: &Channel) -> Result<Status,
     };
 
     let follower = channel.spec.validators.follower();
-    let leader = channel.spec.validators.leader();
     let follower_la = sentry.get_last_approved(&follower).await?;
 
     // setup the messages for the checks
@@ -344,13 +343,9 @@ async fn is_rejected_state(channel: &Channel, messages: &Messages, sentry: &Sent
         .unwrap()
         .validator_messages;
     if validator_messages.is_empty() {
-        return false; // Not 100% sure
+        return false;
     }
-    let latest_new_state = match &validator_messages[0].msg {
-        MessageTypes::NewState(validator_messages[0]) => Some(validator_messages[0]),
-        _ => None,
-    }
-    .unwrap();
+    let latest_new_state = &validator_messages[0];
 
     let leader_new_state = match (messages.has_follower_approve_state(), messages.has_leader_new_state()) {
         (false, true) => return true,
