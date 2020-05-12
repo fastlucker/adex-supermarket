@@ -667,6 +667,7 @@ mod is_rejected_state {
 
     #[tokio::test]
     async fn new_state_but_no_approve_state() {
+        let server = SERVER_POOL.get_server();
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
@@ -698,6 +699,7 @@ mod is_rejected_state {
             recency: Duration::minutes(4),
         };
         let sentry = SentryApi::new().expect("Should work");
+        server.expect(Expectation::matching(any()).respond_with(json_encoded(&latest_new_state)));
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
             .expect("Should call for latest new state");
@@ -709,6 +711,8 @@ mod is_rejected_state {
     }
     #[tokio::test]
     async fn last_approved_new_state_is_outdated() {
+        let server = SERVER_POOL.get_server();
+
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
@@ -743,6 +747,7 @@ mod is_rejected_state {
             recency: Duration::minutes(4),
         };
         let sentry = SentryApi::new().expect("Should work");
+        server.expect(Expectation::matching(any()).respond_with(json_encoded(&latest_new_state)));
 
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
@@ -757,6 +762,8 @@ mod is_rejected_state {
 
     #[tokio::test]
     async fn recent_new_state_and_approve_state() {
+        let server = SERVER_POOL.get_server();
+
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
@@ -792,6 +799,8 @@ mod is_rejected_state {
         };
 
         let sentry = SentryApi::new().expect("Should work");
+        server.expect(Expectation::matching(any()).respond_with(json_encoded(&latest_new_state)));
+
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
             .expect("Should call for latest new state");
@@ -805,6 +814,8 @@ mod is_rejected_state {
 
     #[tokio::test]
     async fn latest_new_state_is_very_new() {
+        let server = SERVER_POOL.get_server();
+
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
@@ -840,6 +851,8 @@ mod is_rejected_state {
         };
 
         let sentry = SentryApi::new().expect("Should work");
+        server.expect(Expectation::matching(any()).respond_with(json_encoded(&latest_new_state)));
+
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
             .expect("Should call for latest new state");
@@ -852,6 +865,8 @@ mod is_rejected_state {
 
     #[tokio::test]
     async fn approved_and_latest_new_state_are_the_same() {
+        let server = SERVER_POOL.get_server();
+
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
@@ -887,6 +902,8 @@ mod is_rejected_state {
             recency: Duration::minutes(4),
         };
         let sentry = SentryApi::new().expect("Should work");
+        server.expect(Expectation::matching(any()).respond_with(json_encoded(&latest_new_state)));
+
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
             .expect("Should call for latest new state");
@@ -899,6 +916,8 @@ mod is_rejected_state {
 
     #[tokio::test]
     async fn approved_and_latest_new_state_are_the_same_and_new() {
+        let server = SERVER_POOL.get_server();
+
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
@@ -934,6 +953,8 @@ mod is_rejected_state {
             recency: Duration::minutes(4),
         };
         let sentry = SentryApi::new().expect("Should work");
+        server.expect(Expectation::matching(any()).respond_with(json_encoded(&latest_new_state)));
+
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
             .expect("Should call for latest new state");

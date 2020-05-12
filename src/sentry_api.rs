@@ -1,7 +1,6 @@
 use primitives::{
     sentry::{LastApprovedResponse, ValidatorMessageResponse, ValidatorMessage},
-    ValidatorDesc,
-    validator::MessageTypes};
+    ValidatorDesc};
 use reqwest::{Client, Error};
 
 #[derive(Debug, Clone)]
@@ -30,12 +29,13 @@ impl SentryApi {
     pub async fn get_latest_new_state(
         &self,
         validator: &ValidatorDesc,
-    ) -> Result<&ValidatorMessage, Error> {
+    ) -> Result<ValidatorMessage, Error> {
         let url = format!("{}/validator-messages/{}/NewState?limit=1", validator.url, validator.id);
         let response = self.client.get(&url).send().await?;
         let response: ValidatorMessageResponse = response.json().await?;
         let message = response.validator_messages
-            .get(0)
+            .into_iter()
+            .next()
             .unwrap();
         Ok(message)
     }
