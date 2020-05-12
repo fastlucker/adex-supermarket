@@ -1569,6 +1569,7 @@ dependencies = [
  "slog-async",
  "slog-term",
  "tokio",
+ "toml",
 ]
 
 [[package]]

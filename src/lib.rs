@@ -10,12 +10,15 @@ use http::{StatusCode, Uri};
 use slog::{error, info, Logger};
 
 mod cache;
+pub mod config;
 mod market;
 mod sentry_api;
 // @TODO: mod status; This is suppressing the warnings
 pub mod status;
 
 use market::MarketApi;
+
+pub use config::{Config, Timeouts};
 pub use sentry_api::SentryApi;
 
 static ROUTE_UNITS_FOR_SLOT: &str = "/units-for-slot/";
@@ -63,13 +66,18 @@ impl From<http::uri::InvalidUri> for Error {
     }
 }
 
-pub async fn serve(addr: SocketAddr, logger: Logger, market_url: String) -> Result<(), Error> {
+pub async fn serve(
+    addr: SocketAddr,
+    logger: Logger,
+    market_url: String,
+    config: Config,
+) -> Result<(), Error> {
     use hyper::service::{make_service_fn, service_fn};
 
     let client = Client::new();
     let market = Arc::new(MarketApi::new(market_url, logger.clone())?);
 
-    let cache = spawn_fetch_campaigns(market.clone(), logger.clone()).await?;
+    let cache = spawn_fetch_campaigns(market.clone(), logger.clone(), config).await?;
 
     // And a MakeService to handle each connection...
     let make_service = make_service_fn(|_| {
@@ -192,8 +200,9 @@ async fn handle(
 async fn spawn_fetch_campaigns(
     market: Arc<MarketApi>,
     logger: Logger,
+    config: Config,
 ) -> Result<Cache, reqwest::Error> {
-    let cache = Cache::initialize(market, logger.clone()).await?;
+    let cache = Cache::initialize(market, logger.clone(), config.clone()).await?;
     info!(
         &logger,
         "Campaigns have been fetched from the Market & Cache is now initialized..."
@@ -204,16 +213,13 @@ async fn spawn_fetch_campaigns(
     // in order to keep discovering new campaigns.
     tokio::spawn(async move {
         use futures::stream::{select, StreamExt};
-        use tokio::time::{interval, Duration, Instant};
+        use tokio::time::{interval, timeout, Instant};
         info!(&logger, "Task for updating campaign has been spawned");
 
-        // Every few seconds, we will update our active campaigns from the
+        // Every X seconds, we will update our active campaigns from the
         // validators (update their latest balance tree).
-        // @TODO: Move to configuration
-        let new_duration = Duration::from_secs(20);
-        let update_duration = Duration::from_secs(5);
-        let new_interval = interval(new_duration).map(TimeFor::New);
-        let update_interval = interval(update_duration).map(TimeFor::Update);
+        let new_interval = interval(config.fetch_campaigns_every).map(TimeFor::New);
+        let update_interval = interval(config.update_campaigns_every).map(TimeFor::Update);
 
         enum TimeFor {
             New(Instant),
@@ -225,13 +231,30 @@ async fn spawn_fetch_campaigns(
         while let Some(time_for) = select_time.next().await {
             // @TODO: Timeout the action
             match time_for {
-                TimeFor::New(_) => match cache_spawn.fetch_new_campaigns().await {
-                    Err(e) => error!(&logger, "{}", e),
-                    _ => info!(&logger, "New Campaigns fetched from Market!"),
-                },
+                TimeFor::New(_) => {
+                    let timeout_duration = config.timeouts.cache_fetch_campaigns_from_market;
+
+                    match timeout(timeout_duration, cache_spawn.fetch_new_campaigns()).await {
+                        Err(_elapsed) => error!(
+                            &logger,
+                            "Fetching new Campaigns timed out";
+                            "allowed secs" => timeout_duration.as_secs()
+                        ),
+                        Ok(Err(e)) => error!(&logger, "{}", e),
+                        _ => info!(&logger, "New Campaigns fetched from Market!"),
+                    }
+                }
                 TimeFor::Update(_) => {
-                    cache_spawn.update_campaigns().await;
-                    info!(&logger, "Campaigns statuses updated from Validators!");
+                    let timeout_duration = config.timeouts.cache_update_campaign_statuses;
+
+                    match timeout(timeout_duration, cache_spawn.update_campaigns()).await {
+                        Ok(_) => info!(&logger, "Campaigns statuses updated from Validators!"),
+                        Err(_elapsed) => error!(
+                                &logger,
+                                "Updating Campaigns statuses timed out";
+                                "allowed secs" => timeout_duration.as_secs()
+                        ),
+                    }
                 }
             }
         }
