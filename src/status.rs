@@ -81,12 +81,12 @@ struct Messages {
 }
 
 impl Messages {
-    fn get_leader_new_state(&self) -> Option<NewStateValidatorMessage> {
+    fn get_leader_new_state(&self) -> Option<&NewStateValidatorMessage> {
         self
             .leader
             .last_approved
             .as_ref()
-            .and_then(|last_approved| last_approved.new_state)
+            .and_then(|last_approved| last_approved.new_state.as_ref())
     }
 
     fn has_leader_hb(&self) -> bool {
@@ -347,23 +347,9 @@ fn is_disconnected(channel: &Channel, messages: &Messages) -> bool {
 }
 
 async fn is_rejected_state(channel: &Channel, messages: &Messages, sentry: &SentryApi) -> Result<bool, Error> {
-    let validator_messages = sentry
+    let latest_new_state = sentry
         .get_latest_new_state(channel.spec.validators.leader())
-        .await?
-        .validator_messages;
-
-    let latest_new_state = validator_messages
-        .get(0)
-        .filter(|validator_message|  match validator_message.msg {
-                MessageTypes::NewState(_) => true,
-                _ => false,
-            });
-
-
-    let latest_new_state = match latest_new_state {
-        Some(validator_message) => validator_message,
-        None => return Ok(false),
-    };
+        .await?;
 
     let leader_new_state = match (messages.has_follower_approve_state(), messages.get_leader_new_state()) {
         (false, Some(_)) => return Ok(true),
@@ -379,8 +365,7 @@ async fn is_rejected_state(channel: &Channel, messages: &Messages, sentry: &Sent
 }
 
 fn is_unhealthy(messages: &Messages) -> bool {
-    if messages.has_leader_new_state() && messages.has_follower_approve_state() {
-        let latest_approve_state = messages
+    let follower_approve_state = messages
             .follower
             .last_approved
             .as_ref()
@@ -388,12 +373,11 @@ fn is_unhealthy(messages: &Messages) -> bool {
             .and_then(|approve_state| match &approve_state.msg {
                 MessageTypes::ApproveState(approve_state) => Some(approve_state),
                 _ => None,
-            })
-            .unwrap();
-
-        return !latest_approve_state.is_healthy
+            });
+    match (messages.has_leader_new_state(), follower_approve_state) {
+        (true, Some(approve_state)) => return approve_state.is_healthy,
+        _ => return false,
     }
-    false
 }
 
 fn is_active() -> bool {

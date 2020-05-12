@@ -665,8 +665,8 @@ mod is_disconnected {
 mod is_rejected_state {
     use super::*;
 
-    #[test]
-    fn new_state_but_no_approve_state() {
+    #[tokio::test]
+    async fn new_state_but_no_approve_state() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
@@ -697,15 +697,18 @@ mod is_rejected_state {
             },
             recency: Duration::minutes(4),
         };
-
+        let sentry = SentryApi::new().expect("Should work");
+        let result = is_rejected_state(&channel, &messages, &sentry)
+            .await
+            .expect("Should call for latest new state");
         assert_eq!(
-            is_rejected_state(&messages, &latest_new_state),
+            result,
             true,
             "Recent new_state messages but the follower does not issue or propagate approve_state"
         )
     }
-    #[test]
-    fn last_approved_new_state_is_outdated() {
+    #[tokio::test]
+    async fn last_approved_new_state_is_outdated() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
@@ -739,16 +742,21 @@ mod is_rejected_state {
             },
             recency: Duration::minutes(4),
         };
+        let sentry = SentryApi::new().expect("Should work");
+
+        let result = is_rejected_state(&channel, &messages, &sentry)
+            .await
+            .expect("Should call for latest new state");
 
         assert_eq!(
-            is_rejected_state(&messages, &latest_new_state),
+            result,
             true,
             "Last approved new_state is older than the latest new_state AND the latest new_state is older than one minute"
         )
     }
 
-    #[test]
-    fn recent_new_state_and_approve_state() {
+    #[tokio::test]
+    async fn recent_new_state_and_approve_state() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
@@ -783,15 +791,20 @@ mod is_rejected_state {
             recency: Duration::minutes(4),
         };
 
+        let sentry = SentryApi::new().expect("Should work");
+        let result = is_rejected_state(&channel, &messages, &sentry)
+            .await
+            .expect("Should call for latest new state");
+
         assert_eq!(
-            is_rejected_state(&messages, &latest_new_state),
+            result,
             false,
             "Recent new_state messages and the follower propagates approve_state"
         )
     }
 
-    #[test]
-    fn latest_new_state_is_very_new() {
+    #[tokio::test]
+    async fn latest_new_state_is_very_new() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
@@ -826,14 +839,19 @@ mod is_rejected_state {
             recency: Duration::minutes(4),
         };
 
+        let sentry = SentryApi::new().expect("Should work");
+        let result = is_rejected_state(&channel, &messages, &sentry)
+            .await
+            .expect("Should call for latest new state");
         assert_eq!(
-            is_rejected_state(&messages, &latest_new_state),
+            result,
             false,
             "Last approved newState is older than latest newstate but NOT older than a minute"
         )
     }
-    #[test]
-    fn approved_and_latest_new_state_are_the_same() {
+
+    #[tokio::test]
+    async fn approved_and_latest_new_state_are_the_same() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
@@ -868,11 +886,61 @@ mod is_rejected_state {
             },
             recency: Duration::minutes(4),
         };
-
+        let sentry = SentryApi::new().expect("Should work");
+        let result = is_rejected_state(&channel, &messages, &sentry)
+            .await
+            .expect("Should call for latest new state");
         assert_eq!(
-            is_rejected_state(&messages, &latest_new_state),
+            result,
             false,
             "Last approved new state and latest new state are the same message and it is older than a minute"
+        )
+    }
+
+    #[tokio::test]
+    async fn approved_and_latest_new_state_are_the_same_and_new() {
+        let channel = DUMMY_CHANNEL.clone();
+        let leader_heartbeats = vec![
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
+        ];
+        let follower_heartbeats = vec![
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
+        ];
+
+        let thirty_sec_ago = Utc::now() - Duration::seconds(30);
+        let mut new_state = get_new_state_msg();
+        new_state.received = thirty_sec_ago;
+        let mut latest_new_state = get_new_state_msg();
+        latest_new_state.received = thirty_sec_ago;
+        let approve_state = get_approve_state_msg(true);
+
+        let messages = Messages {
+            leader: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: Some(new_state),
+                    approve_state: None,
+                }),
+                heartbeats: Some(leader_heartbeats),
+            },
+            follower: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: None,
+                    approve_state: Some(approve_state),
+                }),
+                heartbeats: Some(follower_heartbeats),
+            },
+            recency: Duration::minutes(4),
+        };
+        let sentry = SentryApi::new().expect("Should work");
+        let result = is_rejected_state(&channel, &messages, &sentry)
+            .await
+            .expect("Should call for latest new state");
+        assert_eq!(
+            result,
+            false,
+            "Last approved new state and latest new state are the same message and it is NOT older than a minute"
         )
     }
 }
