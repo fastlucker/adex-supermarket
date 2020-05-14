@@ -347,14 +347,19 @@ fn is_disconnected(channel: &Channel, messages: &Messages) -> bool {
 }
 
 async fn is_rejected_state(channel: &Channel, messages: &Messages, sentry: &SentryApi) -> Result<bool, Error> {
-    let latest_new_state = sentry
-        .get_latest_new_state(channel.spec.validators.leader())
-        .await?;
-
     let leader_new_state = match (messages.has_follower_approve_state(), messages.get_leader_new_state()) {
         (false, Some(_)) => return Ok(true),
         (_, None) => return Ok(false),
         (_, Some(new_state)) => new_state,
+    };
+
+    let latest_new_state = sentry
+    .get_latest_new_state(channel.spec.validators.leader())
+    .await?;
+
+    let latest_new_state = match latest_new_state {
+        Some(new_state) => new_state,
+        None => return Ok(false), // nothing to compare, shouldn't happen
     };
 
     let date_diff = leader_new_state.received - latest_new_state.received;
@@ -375,7 +380,7 @@ fn is_unhealthy(messages: &Messages) -> bool {
                 _ => None,
             });
     match (messages.has_leader_new_state(), follower_approve_state) {
-        (true, Some(approve_state)) => return approve_state.is_healthy,
+        (true, Some(approve_state)) => return !approve_state.is_healthy,
         _ => return false,
     }
 }

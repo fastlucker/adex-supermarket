@@ -1,9 +1,9 @@
 use super::*;
 use crate::sentry_api::SentryApi;
-use chrono::{Duration, Utc, DateTime};
+use chrono::{Duration, Utc};
 use primitives::{
     sentry::{
-        ApproveStateValidatorMessage, LastApproved, LastApprovedResponse, NewStateValidatorMessage,
+        ApproveStateValidatorMessage, LastApproved, LastApprovedResponse, NewStateValidatorMessage, ValidatorMessageResponse, ValidatorMessage,
     },
     util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_FOLLOWER, DUMMY_VALIDATOR_LEADER, IDS},
     validator::{ApproveState, Heartbeat, MessageTypes, NewState},
@@ -59,6 +59,18 @@ fn get_approve_state_msg(is_healthy: bool) -> ApproveStateValidatorMessage {
 
 fn get_new_state_msg() -> NewStateValidatorMessage {
     NewStateValidatorMessage {
+        from: DUMMY_VALIDATOR_LEADER.id,
+        received: Utc::now(),
+        msg: MessageTypes::NewState(NewState {
+            signature: String::from("0x0"),
+            state_root: String::from("0x0"),
+            balances: Default::default(),
+        }),
+    }
+}
+
+fn get_new_state_validator_msg() -> ValidatorMessage {
+    ValidatorMessage {
         from: DUMMY_VALIDATOR_LEADER.id,
         received: Utc::now(),
         msg: MessageTypes::NewState(NewState {
@@ -668,7 +680,8 @@ mod is_rejected_state {
     #[tokio::test]
     async fn new_state_but_no_approve_state() {
         let server = SERVER_POOL.get_server();
-        let channel = DUMMY_CHANNEL.clone();
+        let channel = get_request_channel(&server);
+
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
@@ -679,7 +692,7 @@ mod is_rejected_state {
         ];
 
         let new_state = get_new_state_msg();
-        let latest_new_state = get_new_state_msg();
+        let latest_new_state = get_new_state_validator_msg();
 
         let messages = Messages {
             leader: LastApprovedResponse {
@@ -698,8 +711,12 @@ mod is_rejected_state {
             },
             recency: Duration::minutes(4),
         };
+        let mock_response = ValidatorMessageResponse {
+            validator_messages: vec![latest_new_state],
+        };
+
+        server.expect(Expectation::matching(any()).respond_with(json_encoded(&mock_response)));
         let sentry = SentryApi::new().expect("Should work");
-        server.expect(Expectation::matching(any()).respond_with(json_encoded(&latest_new_state)));
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
             .expect("Should call for latest new state");
@@ -712,8 +729,8 @@ mod is_rejected_state {
     #[tokio::test]
     async fn last_approved_new_state_is_outdated() {
         let server = SERVER_POOL.get_server();
+        let channel = get_request_channel(&server);
 
-        let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
@@ -725,7 +742,7 @@ mod is_rejected_state {
 
         let mut new_state = get_new_state_msg();
         new_state.received = Utc::now() - Duration::minutes(5);
-        let mut latest_new_state = get_new_state_msg();
+        let mut latest_new_state = get_new_state_validator_msg();
         latest_new_state.received = Utc::now() - Duration::minutes(2);
         let approve_state = get_approve_state_msg(true);
 
@@ -746,8 +763,12 @@ mod is_rejected_state {
             },
             recency: Duration::minutes(4),
         };
+        let mock_response = ValidatorMessageResponse {
+            validator_messages: vec![latest_new_state],
+        };
+
+        server.expect(Expectation::matching(any()).respond_with(json_encoded(&mock_response)));
         let sentry = SentryApi::new().expect("Should work");
-        server.expect(Expectation::matching(any()).respond_with(json_encoded(&latest_new_state)));
 
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
@@ -763,8 +784,8 @@ mod is_rejected_state {
     #[tokio::test]
     async fn recent_new_state_and_approve_state() {
         let server = SERVER_POOL.get_server();
+        let channel = get_request_channel(&server);
 
-        let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
@@ -776,7 +797,7 @@ mod is_rejected_state {
 
         let mut new_state = get_new_state_msg();
         new_state.received = Utc::now() - Duration::minutes(5);
-        let mut latest_new_state = get_new_state_msg();
+        let mut latest_new_state = get_new_state_validator_msg();
         latest_new_state.received = Utc::now() - Duration::zero();
         let approve_state = get_approve_state_msg(true);
 
@@ -798,8 +819,12 @@ mod is_rejected_state {
             recency: Duration::minutes(4),
         };
 
+        let mock_response = ValidatorMessageResponse {
+            validator_messages: vec![latest_new_state],
+        };
+
+        server.expect(Expectation::matching(any()).respond_with(json_encoded(&mock_response)));
         let sentry = SentryApi::new().expect("Should work");
-        server.expect(Expectation::matching(any()).respond_with(json_encoded(&latest_new_state)));
 
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
@@ -815,8 +840,8 @@ mod is_rejected_state {
     #[tokio::test]
     async fn latest_new_state_is_very_new() {
         let server = SERVER_POOL.get_server();
+        let channel = get_request_channel(&server);
 
-        let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
@@ -828,7 +853,7 @@ mod is_rejected_state {
 
         let mut new_state = get_new_state_msg();
         new_state.received = Utc::now() - Duration::minutes(5);
-        let mut latest_new_state = get_new_state_msg();
+        let mut latest_new_state = get_new_state_validator_msg();
         latest_new_state.received = Utc::now() - Duration::zero();
         let approve_state = get_approve_state_msg(true);
 
@@ -850,8 +875,12 @@ mod is_rejected_state {
             recency: Duration::minutes(4),
         };
 
+        let mock_response = ValidatorMessageResponse {
+            validator_messages: vec![latest_new_state],
+        };
+
+        server.expect(Expectation::matching(any()).respond_with(json_encoded(&mock_response)));
         let sentry = SentryApi::new().expect("Should work");
-        server.expect(Expectation::matching(any()).respond_with(json_encoded(&latest_new_state)));
 
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
@@ -866,8 +895,8 @@ mod is_rejected_state {
     #[tokio::test]
     async fn approved_and_latest_new_state_are_the_same() {
         let server = SERVER_POOL.get_server();
+        let channel = get_request_channel(&server);
 
-        let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
@@ -880,7 +909,7 @@ mod is_rejected_state {
         let five_min_ago = Utc::now() - Duration::minutes(5);
         let mut new_state = get_new_state_msg();
         new_state.received = five_min_ago;
-        let mut latest_new_state = get_new_state_msg();
+        let mut latest_new_state = get_new_state_validator_msg();
         latest_new_state.received = five_min_ago;
         let approve_state = get_approve_state_msg(true);
 
@@ -902,8 +931,11 @@ mod is_rejected_state {
             recency: Duration::minutes(4),
         };
         let sentry = SentryApi::new().expect("Should work");
-        server.expect(Expectation::matching(any()).respond_with(json_encoded(&latest_new_state)));
+        let mock_response = ValidatorMessageResponse {
+            validator_messages: vec![latest_new_state],
+        };
 
+        server.expect(Expectation::matching(any()).respond_with(json_encoded(&mock_response)));
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
             .expect("Should call for latest new state");
@@ -917,8 +949,8 @@ mod is_rejected_state {
     #[tokio::test]
     async fn approved_and_latest_new_state_are_the_same_and_new() {
         let server = SERVER_POOL.get_server();
+        let channel = get_request_channel(&server);
 
-        let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
@@ -931,7 +963,7 @@ mod is_rejected_state {
         let thirty_sec_ago = Utc::now() - Duration::seconds(30);
         let mut new_state = get_new_state_msg();
         new_state.received = thirty_sec_ago;
-        let mut latest_new_state = get_new_state_msg();
+        let mut latest_new_state = get_new_state_validator_msg();
         latest_new_state.received = thirty_sec_ago;
         let approve_state = get_approve_state_msg(true);
 
@@ -952,8 +984,12 @@ mod is_rejected_state {
             },
             recency: Duration::minutes(4),
         };
+        let mock_response = ValidatorMessageResponse {
+            validator_messages: vec![latest_new_state],
+        };
+
+        server.expect(Expectation::matching(any()).respond_with(json_encoded(&mock_response)));
         let sentry = SentryApi::new().expect("Should work");
-        server.expect(Expectation::matching(any()).respond_with(json_encoded(&latest_new_state)));
 
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
