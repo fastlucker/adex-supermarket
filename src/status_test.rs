@@ -3,7 +3,8 @@ use crate::sentry_api::SentryApi;
 use chrono::{Duration, Utc};
 use primitives::{
     sentry::{
-        ApproveStateValidatorMessage, LastApproved, LastApprovedResponse, NewStateValidatorMessage, ValidatorMessageResponse, ValidatorMessage,
+        ApproveStateValidatorMessage, LastApproved, LastApprovedResponse, NewStateValidatorMessage,
+        ValidatorMessage, ValidatorMessageResponse,
     },
     util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_FOLLOWER, DUMMY_VALIDATOR_LEADER, IDS},
     validator::{ApproveState, Heartbeat, MessageTypes, NewState},
@@ -721,8 +722,7 @@ mod is_rejected_state {
             .await
             .expect("Should call for latest new state");
         assert_eq!(
-            result,
-            true,
+            result, true,
             "Recent new_state messages but the follower does not issue or propagate approve_state"
         )
     }
@@ -831,8 +831,7 @@ mod is_rejected_state {
             .expect("Should call for latest new state");
 
         assert_eq!(
-            result,
-            false,
+            result, false,
             "Recent new_state messages and the follower propagates approve_state"
         )
     }
@@ -886,8 +885,7 @@ mod is_rejected_state {
             .await
             .expect("Should call for latest new state");
         assert_eq!(
-            result,
-            false,
+            result, false,
             "Last approved newState is older than latest newstate but NOT older than a minute"
         )
     }
