@@ -1,0 +1,13 @@
+# if left out or commented out it won't be applied.
+# 100 DAI/TST
+limited_identity_earnings_limit = '100000000000000000000'
+
+# 4 minutes
+recency = 240
+fetch_campaigns_every = 60
+update_campaigns_every = 20
+
+[timeouts]
+cache_update_campaign_statuses = 10
+cache_fetch_campaigns_from_market = 20
+validator_request = 10

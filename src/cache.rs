@@ -1,12 +1,12 @@
 use crate::{
-    market::{MarketApi, MarketUrl, Statuses},
+    market::{MarketApi, Statuses},
     status::{is_finalized, IsFinalized, Status},
-    SentryApi,
+    Config, SentryApi,
 };
 use primitives::{
     market::{Campaign as MarketCampaign, StatusType, StatusType::*},
     validator::MessageTypes,
-    BalancesMap, Channel, ChannelId,
+    BalancesMap, BigNum, Channel, ChannelId, ValidatorId,
 };
 use reqwest::Error;
 use slog::{error, info, warn, Logger};
@@ -62,10 +62,15 @@ impl Cache {
     ];
 
     /// Fetches all the campaigns from the Market and returns the Cache instance
-    pub async fn initialize(market_url: MarketUrl, logger: Logger) -> Result<Self, Error> {
-        let market = MarketApi::new(market_url, logger.clone())?;
-        let sentry = SentryApi::new()?;
+    pub(crate) async fn initialize(
+        market: Arc<MarketApi>,
+        logger: Logger,
+        config: Config,
+    ) -> Result<Self, Error> {
+        let sentry = SentryApi::new(config.timeouts.validator_request)?;
 
+        // we don't need a timeout for the initial fetching of the campaigns
+        // while the applicatoin is still starting
         let all_campaigns = market.fetch_campaigns(&Statuses::All).await?;
 
         let (active, finalized, balances) = all_campaigns.into_iter().fold(
@@ -100,13 +105,35 @@ impl Cache {
         );
 
         Ok(Self {
-            market: Arc::new(market),
+            market,
             active: Arc::new(RwLock::new(active)),
             finalized: Arc::new(RwLock::new(finalized)),
             balance_from_finalized: Arc::new(RwLock::new(balances)),
             logger,
             sentry,
         })
+    }
+
+    pub async fn get_earnings_for(&self, earner: &ValidatorId) -> BigNum {
+        let active_earnings = {
+            let active = self.active.read().await;
+
+            active.values().fold(BigNum::from(0), |mut acc, campaign| {
+                if let Some(earnings) = campaign.balances.get(earner) {
+                    acc += earnings;
+                }
+
+                acc
+            })
+        }; // ReadLock is realeased here
+
+        let finalized_earnings = {
+            let finalized_balances = self.balance_from_finalized.read().await;
+
+            finalized_balances.get(earner).cloned().unwrap_or_default()
+        }; // ReadLock is realeased here
+
+        active_earnings + finalized_earnings
     }
 
     /// Will update the campaigns in the Cache, fetching new campaigns from the Market
@@ -162,26 +189,32 @@ impl Cache {
     /// If No:
     /// - updates the latest Balances from the latest leader's NewState
     pub async fn update_campaigns(&self) {
-        let active_campaigns = self.active.read().await;
+        // we need this scope to drop the Read Lock on `self.active`
+        // before performing the finalize & update actions
+        let (finalize, update) = {
+            let active_campaigns = self.active.read().await;
 
-        let mut finalize = HashMap::new();
-        let mut update = HashMap::new();
-        for (id, campaign) in active_campaigns.iter() {
-            match self.campaign_action(campaign).await {
-                Ok((Action::Finalize, balances)) => {
-                    finalize.insert(*id, balances);
-                }
-                Ok((Action::Update, balances)) => {
-                    if !balances.is_empty() {
-                        update.insert(*id, balances);
+            let mut finalize = HashMap::new();
+            let mut update = HashMap::new();
+            for (id, campaign) in active_campaigns.iter() {
+                match self.campaign_action(campaign).await {
+                    Ok((Action::Finalize, balances)) => {
+                        finalize.insert(*id, balances);
                     }
-                }
-                Err(err) => error!(
-                    &self.logger,
-                    "Error checking if Campaign ({:?}) is finalized: {}", id, err
-                ),
-            };
-        }
+                    Ok((Action::Update, balances)) => {
+                        if !balances.is_empty() {
+                            update.insert(*id, balances);
+                        }
+                    }
+                    Err(err) => error!(
+                        &self.logger,
+                        "Error checking if Campaign ({:?}) is finalized: {}", id, err
+                    ),
+                };
+            }
+
+            (finalize, update)
+        };
 
         self.finalize_campaigns(finalize).await;
         self.update_campaigns_balances(update).await;
@@ -190,9 +223,10 @@ impl Cache {
     /// - Adds the Channel Id to the Finalized cache
     /// - Adds up the latest publishers' Balances (finalized_balances)
     async fn finalize_campaigns(&self, campaigns: HashMap<ChannelId, BalancesMap>) {
-        // Put in finalized
-        self.finalized.write().await.extend(campaigns.keys());
-
+        {
+            // Put in finalized
+            self.finalized.write().await.extend(campaigns.keys());
+        }
         let mut active = self.active.write().await;
         // Sum the balances in balances_from_finalized
         let mut finalized_balances = self.balance_from_finalized.write().await;
@@ -249,5 +283,81 @@ impl Cache {
                 Ok((Action::Update, new_balances.unwrap_or_default()))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use primitives::util::tests::prep_db::{DUMMY_CHANNEL, IDS};
+
+    fn setup_cache(
+        active: HashMap<ChannelId, Campaign>,
+        finalized: HashSet<ChannelId>,
+        balances_for_finalized: BalancesMap,
+    ) -> Result<Cache, Box<dyn std::error::Error>> {
+        use slog::Drain;
+
+        let drain = slog::Discard.fuse();
+        let drain = slog_async::Async::new(drain).build().fuse();
+        let logger = slog::Logger::root(drain, slog::o!());
+
+        let market = MarketApi::new("http://localhost:8005".into(), logger.clone())?;
+        let sentry = SentryApi::new(std::time::Duration::from_secs(60))?;
+
+        let cache = Cache {
+            active: Cached::new(RwLock::new(active)),
+            finalized: Cached::new(RwLock::new(finalized)),
+            balance_from_finalized: Cached::new(RwLock::new(balances_for_finalized)),
+            market: Arc::new(market),
+            logger,
+            sentry,
+        };
+
+        Ok(cache)
+    }
+
+    #[tokio::test]
+    async fn test_get_earnings_for_empty_cache() -> Result<(), Box<dyn std::error::Error>> {
+        let cache = setup_cache(Default::default(), Default::default(), Default::default())?;
+
+        let earnings = cache.get_earnings_for(&IDS["leader"]).await;
+        assert_eq!(BigNum::from(0), earnings);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_earnings_for() -> Result<(), Box<dyn std::error::Error>> {
+        let channel = DUMMY_CHANNEL.clone();
+        let channel_id = channel.id;
+        let balances = vec![(IDS["leader"], 110.into()), (IDS["follower"], 200.into())];
+        let finalized_balances = vec![(IDS["publisher"], 330.into()), (IDS["follower"], 20.into())];
+
+        let campaign = Campaign {
+            balances: balances.into_iter().collect(),
+            channel,
+            status: Status::Active,
+        };
+
+        let active = vec![(channel_id, campaign)].into_iter().collect();
+        let finalized_balances = finalized_balances.into_iter().collect();
+
+        // since we don't really check the finalized campaigns, we can make it empty
+        let cache = setup_cache(active, Default::default(), finalized_balances)?;
+
+        let leader = cache.get_earnings_for(&IDS["leader"]).await;
+        assert_eq!(BigNum::from(110), leader);
+
+        let follower = cache.get_earnings_for(&IDS["follower"]).await;
+        assert_eq!(BigNum::from(220), follower);
+
+        let publisher = cache.get_earnings_for(&IDS["publisher"]).await;
+        assert_eq!(BigNum::from(330), publisher);
+
+        let tester_is_zero = cache.get_earnings_for(&IDS["tester"]).await;
+        assert_eq!(BigNum::from(0), tester_is_zero);
+
+        Ok(())
     }
 }

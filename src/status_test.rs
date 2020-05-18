@@ -85,6 +85,10 @@ fn get_new_state_validator_msg() -> ValidatorMessage {
 mod is_finalized {
     use super::*;
 
+    lazy_static! {
+        static ref SENTRY_API_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+    }
+
     #[tokio::test]
     async fn it_is_finalized_when_expired() {
         let server = SERVER_POOL.get_server();
@@ -98,7 +102,7 @@ mod is_finalized {
 
         server.expect(Expectation::matching(any()).respond_with(json_encoded(response)));
 
-        let sentry = SentryApi::new().expect("Should work");
+        let sentry = SentryApi::new(*SENTRY_API_TIMEOUT).expect("Should work");
 
         let actual = is_finalized(&sentry, &channel)
             .await
@@ -125,7 +129,7 @@ mod is_finalized {
 
         server.expect(Expectation::matching(any()).respond_with(json_encoded(response)));
 
-        let sentry = SentryApi::new().expect("Should work");
+        let sentry = SentryApi::new(*SENTRY_API_TIMEOUT).expect("Should work");
 
         let actual = is_finalized(&sentry, &channel)
             .await
@@ -174,7 +178,7 @@ mod is_finalized {
 
         server.expect(Expectation::matching(any()).respond_with(json_encoded(response)));
 
-        let sentry = SentryApi::new().expect("Should work");
+        let sentry = SentryApi::new(*SENTRY_API_TIMEOUT).expect("Should work");
 
         let actual = is_finalized(&sentry, &channel)
             .await
@@ -218,7 +222,7 @@ mod is_finalized {
 
         server.expect(Expectation::matching(any()).respond_with(json_encoded(&leader_response)));
 
-        let sentry = SentryApi::new().expect("Should work");
+        let sentry = SentryApi::new(*SENTRY_API_TIMEOUT).expect("Should work");
 
         let actual = is_finalized(&sentry, &channel)
             .await
