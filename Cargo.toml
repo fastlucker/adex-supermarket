@@ -30,4 +30,4 @@ slog-async = "2.5"
 lazy_static = "1.4"
 
 [dev-dependencies]
-httptest = "0.12"
+wiremock = "0.2.0"

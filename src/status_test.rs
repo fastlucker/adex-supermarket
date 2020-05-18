@@ -9,8 +9,8 @@ use primitives::{
     validator::{ApproveState, Heartbeat, MessageTypes, NewState},
     BalancesMap, Channel,
 };
-
-use httptest::{mappers::*, responders::*, Expectation, Server, ServerPool};
+use wiremock::{MockServer, Mock, ResponseTemplate};
+use wiremock::matchers::{method, path};
 use lazy_static::lazy_static;
 
 static SERVER_POOL: ServerPool = ServerPool::new(4);
@@ -78,7 +78,7 @@ mod is_finalized {
 
     #[tokio::test]
     async fn it_is_finalized_when_expired() {
-        let server = SERVER_POOL.get_server();
+        let server =  MockServer::start().await;
         let mut channel = get_request_channel(&server);
         channel.valid_until = Utc::now() - Duration::seconds(5);
 
@@ -105,7 +105,7 @@ mod is_finalized {
 
     #[tokio::test]
     async fn it_is_finalized_when_in_withdraw_period() {
-        let server = SERVER_POOL.get_server();
+        let server =  MockServer::start().await;
         let mut channel = get_request_channel(&server);
         channel.spec.withdraw_period_start = Utc::now() - Duration::seconds(5);
 
@@ -132,7 +132,7 @@ mod is_finalized {
 
     #[tokio::test]
     async fn it_is_finalized_when_channel_is_exhausted() {
-        let server = SERVER_POOL.get_server();
+        let server =  MockServer::start().await;
         let channel = get_request_channel(&server);
 
         let leader = channel.spec.validators.leader().id;
@@ -181,7 +181,7 @@ mod is_finalized {
 
     #[tokio::test]
     async fn it_is_not_finalized() {
-        let server = SERVER_POOL.get_server();
+        let server =  MockServer::start().await;
         let channel = get_request_channel(&server);
 
         let leader = channel.spec.validators.leader().id;
