@@ -2,7 +2,7 @@ use crate::sentry_api::SentryApi;
 use chrono::{DateTime, Duration, Utc};
 use primitives::{
     market::Status as MarketStatus,
-    sentry::{HeartbeatValidatorMessage, LastApprovedResponse},
+    sentry::{HeartbeatValidatorMessage, LastApprovedResponse, NewStateValidatorMessage},
     validator::MessageTypes,
     BalancesMap, BigNum, Channel, ValidatorId,
 };
@@ -81,6 +81,13 @@ struct Messages {
 }
 
 impl Messages {
+    fn get_leader_new_state(&self) -> Option<&NewStateValidatorMessage> {
+        self.leader
+            .last_approved
+            .as_ref()
+            .and_then(|last_approved| last_approved.new_state.as_ref())
+    }
+
     fn has_leader_hb(&self) -> bool {
         self.leader
             .heartbeats
@@ -274,7 +281,7 @@ pub async fn get_status(sentry: &SentryApi, channel: &Channel) -> Result<Status,
     let disconnected = is_disconnected(&channel, &messages);
 
     // impl: isInvalid
-    let rejected_state = is_rejected_state();
+    let rejected_state = is_rejected_state(&channel, &messages, &sentry).await?;
 
     // impl: isUnhealthy
     let unhealthy = is_unhealthy(&messages);
@@ -337,20 +344,47 @@ fn is_disconnected(channel: &Channel, messages: &Messages) -> bool {
     !(messages.has_recent_leader_hb_from(follower) && messages.has_recent_follower_hb_from(leader))
 }
 
-fn is_rejected_state() -> bool {
-    todo!()
+async fn is_rejected_state(
+    channel: &Channel,
+    messages: &Messages,
+    sentry: &SentryApi,
+) -> Result<bool, Error> {
+    let leader_new_state = match (
+        messages.has_follower_approve_state(),
+        messages.get_leader_new_state(),
+    ) {
+        (false, Some(_)) => return Ok(true),
+        (_, None) => return Ok(false),
+        (_, Some(new_state)) => new_state,
+    };
+
+    let latest_new_state = sentry
+        .get_latest_new_state(channel.spec.validators.leader())
+        .await?;
+
+    let latest_new_state = match latest_new_state {
+        Some(new_state) => new_state,
+        None => return Ok(false), // nothing to compare, shouldn't happen
+    };
+
+    let date_diff = leader_new_state.received - latest_new_state.received;
+    let is_last_approved_old = date_diff < Duration::zero();
+    let is_latest_new_state_a_minute_old =
+        (Utc::now() - latest_new_state.received) > Duration::minutes(1);
+
+    Ok(is_last_approved_old && is_latest_new_state_a_minute_old)
 }
 
 fn is_unhealthy(messages: &Messages) -> bool {
     let follower_approve_state = messages
-            .follower
-            .last_approved
-            .as_ref()
-            .and_then(|last_approved| last_approved.approve_state.as_ref())
-            .and_then(|approve_state| match &approve_state.msg {
-                MessageTypes::ApproveState(approve_state) => Some(approve_state),
-                _ => None,
-            });
+        .follower
+        .last_approved
+        .as_ref()
+        .and_then(|last_approved| last_approved.approve_state.as_ref())
+        .and_then(|approve_state| match &approve_state.msg {
+            MessageTypes::ApproveState(approve_state) => Some(approve_state),
+            _ => None,
+        });
     match (messages.has_leader_new_state(), follower_approve_state) {
         (true, Some(approve_state)) => !approve_state.is_healthy,
         _ => false,
