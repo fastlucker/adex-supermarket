@@ -277,7 +277,7 @@ pub async fn get_status(sentry: &SentryApi, channel: &Channel) -> Result<Status,
     let rejected_state = is_rejected_state();
 
     // impl: isUnhealthy
-    let unhealthy = is_unhealthy();
+    let unhealthy = is_unhealthy(&messages);
 
     if disconnected || offline || rejected_state || unhealthy {
         return Ok(Status::Unsound {
@@ -341,8 +341,20 @@ fn is_rejected_state() -> bool {
     todo!()
 }
 
-fn is_unhealthy() -> bool {
-    todo!()
+fn is_unhealthy(messages: &Messages) -> bool {
+    let follower_approve_state = messages
+            .follower
+            .last_approved
+            .as_ref()
+            .and_then(|last_approved| last_approved.approve_state.as_ref())
+            .and_then(|approve_state| match &approve_state.msg {
+                MessageTypes::ApproveState(approve_state) => Some(approve_state),
+                _ => None,
+            });
+    match (messages.has_leader_new_state(), follower_approve_state) {
+        (true, Some(approve_state)) => !approve_state.is_healthy,
+        _ => false,
+    }
 }
 
 fn is_active() -> bool {
