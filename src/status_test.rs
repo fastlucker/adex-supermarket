@@ -682,6 +682,10 @@ mod is_disconnected {
 mod is_rejected_state {
     use super::*;
 
+    lazy_static! {
+        static ref SENTRY_API_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+    }
+
     #[tokio::test]
     async fn new_state_but_no_approve_state() {
         let server = SERVER_POOL.get_server();
@@ -697,7 +701,6 @@ mod is_rejected_state {
         ];
 
         let new_state = get_new_state_msg();
-        let latest_new_state = get_new_state_validator_msg();
 
         let messages = Messages {
             leader: LastApprovedResponse {
@@ -716,12 +719,8 @@ mod is_rejected_state {
             },
             recency: Duration::minutes(4),
         };
-        let mock_response = ValidatorMessageResponse {
-            validator_messages: vec![latest_new_state],
-        };
 
-        server.expect(Expectation::matching(any()).respond_with(json_encoded(&mock_response)));
-        let sentry = SentryApi::new().expect("Should work");
+        let sentry = SentryApi::new(*SENTRY_API_TIMEOUT).expect("Should work");
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
             .expect("Should call for latest new state");
@@ -772,7 +771,7 @@ mod is_rejected_state {
         };
 
         server.expect(Expectation::matching(any()).respond_with(json_encoded(&mock_response)));
-        let sentry = SentryApi::new().expect("Should work");
+        let sentry = SentryApi::new(*SENTRY_API_TIMEOUT).expect("Should work");
 
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
@@ -828,7 +827,7 @@ mod is_rejected_state {
         };
 
         server.expect(Expectation::matching(any()).respond_with(json_encoded(&mock_response)));
-        let sentry = SentryApi::new().expect("Should work");
+        let sentry = SentryApi::new(*SENTRY_API_TIMEOUT).expect("Should work");
 
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
@@ -883,7 +882,7 @@ mod is_rejected_state {
         };
 
         server.expect(Expectation::matching(any()).respond_with(json_encoded(&mock_response)));
-        let sentry = SentryApi::new().expect("Should work");
+        let sentry = SentryApi::new(*SENTRY_API_TIMEOUT).expect("Should work");
 
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
@@ -932,7 +931,7 @@ mod is_rejected_state {
             },
             recency: Duration::minutes(4),
         };
-        let sentry = SentryApi::new().expect("Should work");
+        let sentry = SentryApi::new(*SENTRY_API_TIMEOUT).expect("Should work");
         let mock_response = ValidatorMessageResponse {
             validator_messages: vec![latest_new_state],
         };
@@ -991,7 +990,7 @@ mod is_rejected_state {
         };
 
         server.expect(Expectation::matching(any()).respond_with(json_encoded(&mock_response)));
-        let sentry = SentryApi::new().expect("Should work");
+        let sentry = SentryApi::new(*SENTRY_API_TIMEOUT).expect("Should work");
 
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
