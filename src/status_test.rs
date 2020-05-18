@@ -720,6 +720,7 @@ mod is_rejected_state {
             recency: Duration::minutes(4),
         };
 
+        server.expect(Expectation::matching(any()).times(0).respond_with(status_code(500)));
         let sentry = SentryApi::new(*SENTRY_API_TIMEOUT).expect("Should work");
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
