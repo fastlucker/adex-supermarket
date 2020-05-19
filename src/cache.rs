@@ -114,6 +114,7 @@ impl Cache {
         })
     }
 
+    #[allow(dead_code)]
     pub async fn get_earnings_for(&self, earner: &ValidatorId) -> BigNum {
         let active_earnings = {
             let active = self.active.read().await;

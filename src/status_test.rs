@@ -1,6 +1,7 @@
 use super::*;
 use crate::sentry_api::SentryApi;
 use chrono::{Duration, Utc};
+use lazy_static::lazy_static;
 use primitives::{
     sentry::{
         ApproveStateValidatorMessage, LastApproved, LastApprovedResponse, NewStateValidatorMessage,
@@ -10,24 +11,20 @@ use primitives::{
     validator::{ApproveState, Heartbeat, MessageTypes, NewState},
     BalancesMap, Channel,
 };
-
-use httptest::{mappers::*, responders::*, Expectation, Server, ServerPool};
-use lazy_static::lazy_static;
-
-static SERVER_POOL: ServerPool = ServerPool::new(4);
+use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 
 lazy_static! {
     static ref RECENCY: Duration = Duration::minutes(4);
     static ref RECENT: Duration = Duration::minutes(3);
 }
 
-fn get_request_channel(server: &Server) -> Channel {
+fn get_request_channel(server: &MockServer) -> Channel {
     let mut channel = DUMMY_CHANNEL.clone();
     let mut leader = DUMMY_VALIDATOR_LEADER.clone();
-    leader.url = server.url_str("/leader");
+    leader.url = server.uri() + "/leader";
 
     let mut follower = DUMMY_VALIDATOR_FOLLOWER.clone();
-    follower.url = server.url_str("/follower");
+    follower.url = server.uri() + "/follower";
 
     channel.spec.validators = (leader, follower).into();
 
@@ -91,7 +88,7 @@ mod is_finalized {
 
     #[tokio::test]
     async fn it_is_finalized_when_expired() {
-        let server = SERVER_POOL.get_server();
+        let server = MockServer::start().await;
         let mut channel = get_request_channel(&server);
         channel.valid_until = Utc::now() - Duration::seconds(5);
 
@@ -100,7 +97,10 @@ mod is_finalized {
             heartbeats: None,
         };
 
-        server.expect(Expectation::matching(any()).respond_with(json_encoded(response)));
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(response))
+            .mount(&server)
+            .await;
 
         let sentry = SentryApi::new(*SENTRY_API_TIMEOUT).expect("Should work");
 
@@ -118,7 +118,7 @@ mod is_finalized {
 
     #[tokio::test]
     async fn it_is_finalized_when_in_withdraw_period() {
-        let server = SERVER_POOL.get_server();
+        let server = MockServer::start().await;
         let mut channel = get_request_channel(&server);
         channel.spec.withdraw_period_start = Utc::now() - Duration::seconds(5);
 
@@ -127,7 +127,10 @@ mod is_finalized {
             heartbeats: None,
         };
 
-        server.expect(Expectation::matching(any()).respond_with(json_encoded(response)));
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(response))
+            .mount(&server)
+            .await;
 
         let sentry = SentryApi::new(*SENTRY_API_TIMEOUT).expect("Should work");
 
@@ -145,7 +148,7 @@ mod is_finalized {
 
     #[tokio::test]
     async fn it_is_finalized_when_channel_is_exhausted() {
-        let server = SERVER_POOL.get_server();
+        let server = MockServer::start().await;
         let channel = get_request_channel(&server);
 
         let leader = channel.spec.validators.leader().id;
@@ -176,7 +179,10 @@ mod is_finalized {
             heartbeats: None,
         };
 
-        server.expect(Expectation::matching(any()).respond_with(json_encoded(response)));
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(response))
+            .mount(&server)
+            .await;
 
         let sentry = SentryApi::new(*SENTRY_API_TIMEOUT).expect("Should work");
 
@@ -194,7 +200,7 @@ mod is_finalized {
 
     #[tokio::test]
     async fn it_is_not_finalized() {
-        let server = SERVER_POOL.get_server();
+        let server = MockServer::start().await;
         let channel = get_request_channel(&server);
 
         let leader = channel.spec.validators.leader().id;
@@ -220,7 +226,10 @@ mod is_finalized {
             heartbeats: None,
         };
 
-        server.expect(Expectation::matching(any()).respond_with(json_encoded(&leader_response)));
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&leader_response))
+            .mount(&server)
+            .await;
 
         let sentry = SentryApi::new(*SENTRY_API_TIMEOUT).expect("Should work");
 
@@ -688,7 +697,7 @@ mod is_rejected_state {
 
     #[tokio::test]
     async fn new_state_but_no_approve_state() {
-        let server = SERVER_POOL.get_server();
+        let server = MockServer::start().await;
         let channel = get_request_channel(&server);
 
         let leader_heartbeats = vec![
@@ -720,7 +729,12 @@ mod is_rejected_state {
             recency: Duration::minutes(4),
         };
 
-        server.expect(Expectation::matching(any()).times(0).respond_with(status_code(500)));
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
+            .mount(&server)
+            .await;
+
         let sentry = SentryApi::new(*SENTRY_API_TIMEOUT).expect("Should work");
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
@@ -732,7 +746,7 @@ mod is_rejected_state {
     }
     #[tokio::test]
     async fn last_approved_new_state_is_outdated() {
-        let server = SERVER_POOL.get_server();
+        let server = MockServer::start().await;
         let channel = get_request_channel(&server);
 
         let leader_heartbeats = vec![
@@ -771,9 +785,12 @@ mod is_rejected_state {
             validator_messages: vec![latest_new_state],
         };
 
-        server.expect(Expectation::matching(any()).respond_with(json_encoded(&mock_response)));
-        let sentry = SentryApi::new(*SENTRY_API_TIMEOUT).expect("Should work");
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&mock_response))
+            .mount(&server)
+            .await;
 
+        let sentry = SentryApi::new(*SENTRY_API_TIMEOUT).expect("Should work");
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
             .expect("Should call for latest new state");
@@ -787,7 +804,7 @@ mod is_rejected_state {
 
     #[tokio::test]
     async fn recent_new_state_and_approve_state() {
-        let server = SERVER_POOL.get_server();
+        let server = MockServer::start().await;
         let channel = get_request_channel(&server);
 
         let leader_heartbeats = vec![
@@ -827,7 +844,10 @@ mod is_rejected_state {
             validator_messages: vec![latest_new_state],
         };
 
-        server.expect(Expectation::matching(any()).respond_with(json_encoded(&mock_response)));
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&mock_response))
+            .mount(&server)
+            .await;
         let sentry = SentryApi::new(*SENTRY_API_TIMEOUT).expect("Should work");
 
         let result = is_rejected_state(&channel, &messages, &sentry)
@@ -842,7 +862,7 @@ mod is_rejected_state {
 
     #[tokio::test]
     async fn latest_new_state_is_very_new() {
-        let server = SERVER_POOL.get_server();
+        let server = MockServer::start().await;
         let channel = get_request_channel(&server);
 
         let leader_heartbeats = vec![
@@ -882,7 +902,11 @@ mod is_rejected_state {
             validator_messages: vec![latest_new_state],
         };
 
-        server.expect(Expectation::matching(any()).respond_with(json_encoded(&mock_response)));
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&mock_response))
+            .mount(&server)
+            .await;
+
         let sentry = SentryApi::new(*SENTRY_API_TIMEOUT).expect("Should work");
 
         let result = is_rejected_state(&channel, &messages, &sentry)
@@ -896,7 +920,7 @@ mod is_rejected_state {
 
     #[tokio::test]
     async fn approved_and_latest_new_state_are_the_same() {
-        let server = SERVER_POOL.get_server();
+        let server = MockServer::start().await;
         let channel = get_request_channel(&server);
 
         let leader_heartbeats = vec![
@@ -937,7 +961,11 @@ mod is_rejected_state {
             validator_messages: vec![latest_new_state],
         };
 
-        server.expect(Expectation::matching(any()).respond_with(json_encoded(&mock_response)));
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&mock_response))
+            .mount(&server)
+            .await;
+
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
             .expect("Should call for latest new state");
@@ -950,7 +978,7 @@ mod is_rejected_state {
 
     #[tokio::test]
     async fn approved_and_latest_new_state_are_the_same_and_new() {
-        let server = SERVER_POOL.get_server();
+        let server = MockServer::start().await;
         let channel = get_request_channel(&server);
 
         let leader_heartbeats = vec![
@@ -990,7 +1018,11 @@ mod is_rejected_state {
             validator_messages: vec![latest_new_state],
         };
 
-        server.expect(Expectation::matching(any()).respond_with(json_encoded(&mock_response)));
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&mock_response))
+            .mount(&server)
+            .await;
+
         let sentry = SentryApi::new(*SENTRY_API_TIMEOUT).expect("Should work");
 
         let result = is_rejected_state(&channel, &messages, &sentry)
