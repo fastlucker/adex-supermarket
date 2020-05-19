@@ -11,10 +11,7 @@ use primitives::{
     validator::{ApproveState, Heartbeat, MessageTypes, NewState},
     BalancesMap, Channel,
 };
-use wiremock::{
-    matchers::{method, path},
-    Mock, MockServer, ResponseTemplate, Times,
-};
+use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 
 lazy_static! {
     static ref RECENCY: Duration = Duration::minutes(4);
