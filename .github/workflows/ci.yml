@@ -16,7 +16,6 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --all-features --benches --bins --examples --tests
 
   test:
     name: Test Suite
@@ -31,7 +30,6 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --all-features
 
   fmt:
     name: Rustfmt

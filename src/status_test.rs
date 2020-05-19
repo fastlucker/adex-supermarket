@@ -1,6 +1,7 @@
 use super::*;
 use crate::sentry_api::SentryApi;
 use chrono::{Duration, Utc};
+use lazy_static::lazy_static;
 use primitives::{
     sentry::{
         ApproveStateValidatorMessage, LastApproved, LastApprovedResponse, NewStateValidatorMessage,
@@ -11,15 +12,9 @@ use primitives::{
     BalancesMap, Channel,
 };
 use wiremock::{
-    MockServer,
-    Mock,
-    ResponseTemplate,
-    Times,
-    matchers::{
-        method,
-        path,
-    }};
-use lazy_static::lazy_static;
+    matchers::{method, path},
+    Mock, MockServer, ResponseTemplate, Times,
+};
 
 lazy_static! {
     static ref RECENCY: Duration = Duration::minutes(4);
@@ -29,10 +24,10 @@ lazy_static! {
 fn get_request_channel(server: &MockServer) -> Channel {
     let mut channel = DUMMY_CHANNEL.clone();
     let mut leader = DUMMY_VALIDATOR_LEADER.clone();
-    leader.url = server.uri("/leader");
+    leader.url = server.uri() + "/leader";
 
     let mut follower = DUMMY_VALIDATOR_FOLLOWER.clone();
-    follower.url = server.uri("/follower");
+    follower.url = server.uri() + "/follower";
 
     channel.spec.validators = (leader, follower).into();
 
@@ -96,7 +91,7 @@ mod is_finalized {
 
     #[tokio::test]
     async fn it_is_finalized_when_expired() {
-        let server =  MockServer::start().await;
+        let server = MockServer::start().await;
         let mut channel = get_request_channel(&server);
         channel.valid_until = Utc::now() - Duration::seconds(5);
 
@@ -127,7 +122,7 @@ mod is_finalized {
 
     #[tokio::test]
     async fn it_is_finalized_when_in_withdraw_period() {
-        let server =  MockServer::start().await;
+        let server = MockServer::start().await;
         let mut channel = get_request_channel(&server);
         channel.spec.withdraw_period_start = Utc::now() - Duration::seconds(5);
 
@@ -157,7 +152,7 @@ mod is_finalized {
 
     #[tokio::test]
     async fn it_is_finalized_when_channel_is_exhausted() {
-        let server =  MockServer::start().await;
+        let server = MockServer::start().await;
         let channel = get_request_channel(&server);
 
         let leader = channel.spec.validators.leader().id;
@@ -209,7 +204,7 @@ mod is_finalized {
 
     #[tokio::test]
     async fn it_is_not_finalized() {
-        let server =  MockServer::start().await;
+        let server = MockServer::start().await;
         let channel = get_request_channel(&server);
 
         let leader = channel.spec.validators.leader().id;
@@ -706,7 +701,7 @@ mod is_rejected_state {
 
     #[tokio::test]
     async fn new_state_but_no_approve_state() {
-        let server =  MockServer::start().await;
+        let server = MockServer::start().await;
         let channel = get_request_channel(&server);
 
         let leader_heartbeats = vec![
@@ -740,7 +735,7 @@ mod is_rejected_state {
 
         Mock::given(method("GET"))
             .respond_with(ResponseTemplate::new(500))
-            .up_to_n_times(0)
+            .expect(0)
             .mount(&server)
             .await;
 
@@ -755,7 +750,7 @@ mod is_rejected_state {
     }
     #[tokio::test]
     async fn last_approved_new_state_is_outdated() {
-        let server =  MockServer::start().await;
+        let server = MockServer::start().await;
         let channel = get_request_channel(&server);
 
         let leader_heartbeats = vec![
@@ -813,7 +808,7 @@ mod is_rejected_state {
 
     #[tokio::test]
     async fn recent_new_state_and_approve_state() {
-        let server =  MockServer::start().await;
+        let server = MockServer::start().await;
         let channel = get_request_channel(&server);
 
         let leader_heartbeats = vec![
@@ -871,7 +866,7 @@ mod is_rejected_state {
 
     #[tokio::test]
     async fn latest_new_state_is_very_new() {
-        let server =  MockServer::start().await;
+        let server = MockServer::start().await;
         let channel = get_request_channel(&server);
 
         let leader_heartbeats = vec![
@@ -929,7 +924,7 @@ mod is_rejected_state {
 
     #[tokio::test]
     async fn approved_and_latest_new_state_are_the_same() {
-        let server =  MockServer::start().await;
+        let server = MockServer::start().await;
         let channel = get_request_channel(&server);
 
         let leader_heartbeats = vec![
@@ -987,7 +982,7 @@ mod is_rejected_state {
 
     #[tokio::test]
     async fn approved_and_latest_new_state_are_the_same_and_new() {
-        let server =  MockServer::start().await;
+        let server = MockServer::start().await;
         let channel = get_request_channel(&server);
 
         let leader_heartbeats = vec![
