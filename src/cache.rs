@@ -114,27 +114,27 @@ impl Cache {
         })
     }
 
-    pub async fn get_earnings_for(&self, earner: &ValidatorId) -> BigNum {
-        let active_earnings = {
-            let active = self.active.read().await;
+    // pub async fn get_earnings_for(&self, earner: &ValidatorId) -> BigNum {
+    //     let active_earnings = {
+    //         let active = self.active.read().await;
 
-            active.values().fold(BigNum::from(0), |mut acc, campaign| {
-                if let Some(earnings) = campaign.balances.get(earner) {
-                    acc += earnings;
-                }
+    //         active.values().fold(BigNum::from(0), |mut acc, campaign| {
+    //             if let Some(earnings) = campaign.balances.get(earner) {
+    //                 acc += earnings;
+    //             }
 
-                acc
-            })
-        }; // ReadLock is realeased here
+    //             acc
+    //         })
+    //     }; // ReadLock is realeased here
 
-        let finalized_earnings = {
-            let finalized_balances = self.balance_from_finalized.read().await;
+    //     let finalized_earnings = {
+    //         let finalized_balances = self.balance_from_finalized.read().await;
 
-            finalized_balances.get(earner).cloned().unwrap_or_default()
-        }; // ReadLock is realeased here
+    //         finalized_balances.get(earner).cloned().unwrap_or_default()
+    //     }; // ReadLock is realeased here
 
-        active_earnings + finalized_earnings
-    }
+    //     active_earnings + finalized_earnings
+    // }
 
     /// Will update the campaigns in the Cache, fetching new campaigns from the Market
     pub async fn fetch_new_campaigns(&self) -> Result<(), Error> {
