@@ -97,7 +97,6 @@ mod is_finalized {
             heartbeats: None,
         };
 
-        // server.expect(Expectation::matching(any()).respond_with(json_encoded(response)));
         Mock::given(method("GET"))
             .respond_with(ResponseTemplate::new(200).set_body_json(response))
             .mount(&server)
