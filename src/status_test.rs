@@ -720,7 +720,11 @@ mod is_rejected_state {
             recency: Duration::minutes(4),
         };
 
-        server.expect(Expectation::matching(any()).times(0).respond_with(status_code(500)));
+        server.expect(
+            Expectation::matching(any())
+                .times(0)
+                .respond_with(status_code(500)),
+        );
         let sentry = SentryApi::new(*SENTRY_API_TIMEOUT).expect("Should work");
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
@@ -1123,6 +1127,440 @@ mod is_unhealthy {
             is_unhealthy(&messages),
             false,
             "Approve state is unhealthy but there are no recent new state messages"
+        )
+    }
+}
+
+mod is_active {
+    use super::*;
+
+    #[test]
+    fn recent_heartbeats_and_healthy_approve_state() {
+        let channel = DUMMY_CHANNEL.clone();
+        let leader_heartbeats = vec![
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
+        ];
+        let follower_heartbeats = vec![
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
+        ];
+
+        let new_state = get_new_state_msg();
+        let approve_state = get_approve_state_msg(true);
+
+        let messages = Messages {
+            leader: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: Some(new_state),
+                    approve_state: None,
+                }),
+                heartbeats: Some(leader_heartbeats),
+            },
+            follower: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: None,
+                    approve_state: Some(approve_state),
+                }),
+                heartbeats: Some(follower_heartbeats),
+            },
+            recency: *RECENCY,
+        };
+
+        assert_eq!(
+            is_active(&messages),
+            true,
+            "Recent heartbeat messages on both validators and approve state reports healthy"
+        )
+    }
+
+    #[test]
+    fn recent_heartbeats_but_unhealthy_approve_state() {
+        let channel = DUMMY_CHANNEL.clone();
+        let leader_heartbeats = vec![
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
+        ];
+        let follower_heartbeats = vec![
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
+        ];
+
+        let new_state = get_new_state_msg();
+        let approve_state = get_approve_state_msg(false);
+
+        let messages = Messages {
+            leader: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: Some(new_state),
+                    approve_state: None,
+                }),
+                heartbeats: Some(leader_heartbeats),
+            },
+            follower: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: None,
+                    approve_state: Some(approve_state),
+                }),
+                heartbeats: Some(follower_heartbeats),
+            },
+            recency: *RECENCY,
+        };
+
+        assert_eq!(
+            is_active(&messages),
+            false,
+            "Recent heartbeat messages on both validators but approve state reports unhealthy"
+        )
+    }
+
+    #[test]
+    fn no_recent_heartbeats() {
+        let channel = DUMMY_CHANNEL.clone();
+        let leader_heartbeats = vec![
+            get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.follower().id),
+        ];
+        let follower_heartbeats = vec![
+            get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.follower().id),
+        ];
+
+        let new_state = get_new_state_msg();
+        let approve_state = get_approve_state_msg(true);
+
+        let messages = Messages {
+            leader: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: Some(new_state),
+                    approve_state: None,
+                }),
+                heartbeats: Some(leader_heartbeats),
+            },
+            follower: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: None,
+                    approve_state: Some(approve_state),
+                }),
+                heartbeats: Some(follower_heartbeats),
+            },
+            recency: *RECENCY,
+        };
+
+        assert_eq!(
+            is_active(&messages),
+            false,
+            "No recent heartbeats on both validators"
+        )
+    }
+
+    #[test]
+    fn no_recent_heartbeats_on_leader() {
+        let channel = DUMMY_CHANNEL.clone();
+        let leader_heartbeats = vec![
+            get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.follower().id),
+        ];
+        let follower_heartbeats = vec![
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
+        ];
+
+        let new_state = get_new_state_msg();
+        let approve_state = get_approve_state_msg(true);
+
+        let messages = Messages {
+            leader: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: Some(new_state),
+                    approve_state: None,
+                }),
+                heartbeats: Some(leader_heartbeats),
+            },
+            follower: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: None,
+                    approve_state: Some(approve_state),
+                }),
+                heartbeats: Some(follower_heartbeats),
+            },
+            recency: *RECENCY,
+        };
+
+        assert_eq!(
+            is_active(&messages),
+            false,
+            "No recent heartbeats on leader validator"
+        )
+    }
+
+    #[test]
+    fn no_recent_heartbeats_on_follower() {
+        let channel = DUMMY_CHANNEL.clone();
+        let leader_heartbeats = vec![
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
+        ];
+        let follower_heartbeats = vec![
+            get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.follower().id),
+        ];
+
+        let new_state = get_new_state_msg();
+        let approve_state = get_approve_state_msg(true);
+
+        let messages = Messages {
+            leader: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: Some(new_state),
+                    approve_state: None,
+                }),
+                heartbeats: Some(leader_heartbeats),
+            },
+            follower: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: None,
+                    approve_state: Some(approve_state),
+                }),
+                heartbeats: Some(follower_heartbeats),
+            },
+            recency: *RECENCY,
+        };
+
+        assert_eq!(
+            is_active(&messages),
+            false,
+            "No recent heartbeats on follower validator"
+        )
+    }
+
+    #[test]
+    fn no_approve_state_message() {
+        let channel = DUMMY_CHANNEL.clone();
+        let leader_heartbeats = vec![
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
+        ];
+        let follower_heartbeats = vec![
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
+        ];
+
+        let new_state = get_new_state_msg();
+
+        let messages = Messages {
+            leader: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: Some(new_state),
+                    approve_state: None,
+                }),
+                heartbeats: Some(leader_heartbeats),
+            },
+            follower: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: None,
+                    approve_state: None,
+                }),
+                heartbeats: Some(follower_heartbeats),
+            },
+            recency: *RECENCY,
+        };
+
+        assert_eq!(
+            is_active(&messages),
+            false,
+            "No approve state message on follower validators"
+        )
+    }
+}
+
+mod is_ready {
+    use super::*;
+
+    #[test]
+    fn recent_messages_but_no_new_state() {
+        let channel = DUMMY_CHANNEL.clone();
+        let leader_heartbeats = vec![
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
+        ];
+        let follower_heartbeats = vec![
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
+        ];
+
+        let messages = Messages {
+            leader: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: None,
+                    approve_state: None,
+                }),
+                heartbeats: Some(leader_heartbeats),
+            },
+            follower: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: None,
+                    approve_state: None,
+                }),
+                heartbeats: Some(follower_heartbeats),
+            },
+            recency: *RECENCY,
+        };
+
+        assert_eq!(
+            is_ready(&messages),
+            true,
+            "Recent hearbeat messages and no new state means its ready"
+        )
+    }
+
+    #[test]
+    fn no_recent_messages_and_no_new_state() {
+        let channel = DUMMY_CHANNEL.clone();
+        let leader_heartbeats = vec![
+            get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.follower().id),
+        ];
+        let follower_heartbeats = vec![
+            get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.follower().id),
+        ];
+
+        let messages = Messages {
+            leader: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: None,
+                    approve_state: None,
+                }),
+                heartbeats: Some(leader_heartbeats),
+            },
+            follower: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: None,
+                    approve_state: None,
+                }),
+                heartbeats: Some(follower_heartbeats),
+            },
+            recency: *RECENCY,
+        };
+
+        assert_eq!(
+            is_ready(&messages),
+            false,
+            "No recent hearbeat messages on both validators and no new state means its not ready"
+        )
+    }
+
+    #[test]
+    fn no_recent_messages_on_leader_and_no_new_state() {
+        let channel = DUMMY_CHANNEL.clone();
+        let leader_heartbeats = vec![
+            get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.follower().id),
+        ];
+        let follower_heartbeats = vec![
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
+        ];
+
+        let messages = Messages {
+            leader: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: None,
+                    approve_state: None,
+                }),
+                heartbeats: Some(leader_heartbeats),
+            },
+            follower: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: None,
+                    approve_state: None,
+                }),
+                heartbeats: Some(follower_heartbeats),
+            },
+            recency: *RECENCY,
+        };
+
+        assert_eq!(
+            is_ready(&messages),
+            false,
+            "No recent hearbeat messages on leader valdiator and no new state means its not ready"
+        )
+    }
+
+    #[test]
+    fn no_recent_messages_on_follower_and_no_new_state() {
+        let channel = DUMMY_CHANNEL.clone();
+        let leader_heartbeats = vec![
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
+        ];
+        let follower_heartbeats = vec![
+            get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.follower().id),
+        ];
+
+        let messages = Messages {
+            leader: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: None,
+                    approve_state: None,
+                }),
+                heartbeats: Some(leader_heartbeats),
+            },
+            follower: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: None,
+                    approve_state: None,
+                }),
+                heartbeats: Some(follower_heartbeats),
+            },
+            recency: *RECENCY,
+        };
+
+        assert_eq!(
+            is_ready(&messages),
+            false,
+            "No recent hearbeat messages on follower and no new state means its not ready"
+        )
+    }
+
+    #[test]
+    fn recent_messages_and_new_state() {
+        let channel = DUMMY_CHANNEL.clone();
+        let leader_heartbeats = vec![
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
+        ];
+        let follower_heartbeats = vec![
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
+            get_heartbeat_msg(Duration::zero(), channel.spec.validators.follower().id),
+        ];
+
+        let new_state = get_new_state_msg();
+
+        let messages = Messages {
+            leader: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: Some(new_state),
+                    approve_state: None,
+                }),
+                heartbeats: Some(leader_heartbeats),
+            },
+            follower: LastApprovedResponse {
+                last_approved: Some(LastApproved {
+                    new_state: None,
+                    approve_state: None,
+                }),
+                heartbeats: Some(follower_heartbeats),
+            },
+            recency: *RECENCY,
+        };
+
+        assert_eq!(
+            is_ready(&messages),
+            false,
+            "Recent hearbeat messages and a new state message means it is past the ready stage"
         )
     }
 }
