@@ -86,19 +86,15 @@ impl MarketApi {
     /// `skip` - how many records it should skip (pagination)
     async fn fetch_units_page(&self, ad_type: &str, skip: u64) -> Result<Vec<AdUnit>> {
         let url = format!(
-            "{}/units?limit={}&skip={}",
+            "{}/units?limit={}&skip={}&type={}",
             self.market_url,
             Self::MARKET_AD_UNITS_LIMIT,
-            skip
+            skip,
+            ad_type,
         );
         let response = self.client.get(&url).send().await?;
 
-        let all_ad_units: Vec<AdUnit> = response.json().await?;
-
-        let ad_units = all_ad_units
-            .into_iter()
-            .filter(|ad_unit| ad_unit.ad_type == ad_type)
-            .collect();
+        let ad_units: Vec<AdUnit> = response.json().await?;
 
         Ok(ad_units)
     }
