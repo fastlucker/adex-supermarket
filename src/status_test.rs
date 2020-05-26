@@ -738,7 +738,7 @@ mod is_rejected_state {
         let sentry = SentryApi::new(*SENTRY_API_TIMEOUT).expect("Should work");
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
-            .expect("Should call for latest new state");
+            .expect("Should call for latest NewState");
         assert_eq!(
             result, true,
             "Recent new_state messages but the follower does not issue or propagate approve_state"
@@ -793,7 +793,7 @@ mod is_rejected_state {
         let sentry = SentryApi::new(*SENTRY_API_TIMEOUT).expect("Should work");
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
-            .expect("Should call for latest new state");
+            .expect("Should call for latest NewState");
 
         assert_eq!(
             result,
@@ -852,7 +852,7 @@ mod is_rejected_state {
 
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
-            .expect("Should call for latest new state");
+            .expect("Should call for latest NewState");
 
         assert_eq!(
             result, false,
@@ -911,7 +911,7 @@ mod is_rejected_state {
 
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
-            .expect("Should call for latest new state");
+            .expect("Should call for latest NewState");
         assert_eq!(
             result, false,
             "Last approved newState is older than latest newstate but NOT older than a minute"
@@ -968,11 +968,11 @@ mod is_rejected_state {
 
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
-            .expect("Should call for latest new state");
+            .expect("Should call for latest NewState");
         assert_eq!(
             result,
             false,
-            "Last approved new state and latest new state are the same message and it is older than a minute"
+            "Last approved NewState and latest NewState are the same message and it is older than a minute"
         )
     }
 
@@ -1027,11 +1027,11 @@ mod is_rejected_state {
 
         let result = is_rejected_state(&channel, &messages, &sentry)
             .await
-            .expect("Should call for latest new state");
+            .expect("Should call for latest NewState");
         assert_eq!(
             result,
             false,
-            "Last approved new state and latest new state are the same message and it is NOT older than a minute"
+            "Last approved NewState and latest NewState are the same message and it is NOT older than a minute"
         )
     }
 }
@@ -1075,7 +1075,7 @@ mod is_unhealthy {
         assert_eq!(
             is_unhealthy(&messages),
             true,
-            "Recent new state and approve state but approve state reports unhealthy"
+            "Recent NewState and ApproveState but ApproveState reports unhealthy"
         )
     }
 
@@ -1115,12 +1115,12 @@ mod is_unhealthy {
         assert_eq!(
             is_unhealthy(&messages),
             false,
-            "Recent new state and approve state and approve state reports healthy"
+            "Recent NewState and ApproveState and ApproveState reports healthy"
         )
     }
 
     #[test]
-    fn no_recent_new_state_messages() {
+    fn no_recent_new_state_message() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
@@ -1154,7 +1154,7 @@ mod is_unhealthy {
         assert_eq!(
             is_unhealthy(&messages),
             false,
-            "Approve state is unhealthy but there are no recent new state messages"
+            "ApproveState is unhealthy but there is no recent NewState message"
         )
     }
 }
@@ -1163,7 +1163,7 @@ mod is_active {
     use super::*;
 
     #[test]
-    fn recent_heartbeats_and_healthy_approve_state() {
+    fn recent_heartbeats_and_new_state_and_healthy_approve_state() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
@@ -1198,12 +1198,12 @@ mod is_active {
         assert_eq!(
             is_active(&messages),
             true,
-            "Recent heartbeat messages on both validators and approve state reports healthy"
+            "Recent Heartbeat messages on both validators, recent NewState and ApproveState reports healthy"
         )
     }
 
     #[test]
-    fn recent_heartbeats_but_unhealthy_approve_state() {
+    fn recent_heartbeats_and_new_state_but_unhealthy_approve_state() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
@@ -1238,12 +1238,12 @@ mod is_active {
         assert_eq!(
             is_active(&messages),
             false,
-            "Recent heartbeat messages on both validators but approve state reports unhealthy"
+            "Recent Heartbeat messages on both validators but ApproveState reports unhealthy"
         )
     }
 
     #[test]
-    fn no_recent_heartbeats() {
+    fn recent_healthy_approve_state_and_recent_new_state_but_no_recent_heartbeats() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.leader().id),
@@ -1278,12 +1278,12 @@ mod is_active {
         assert_eq!(
             is_active(&messages),
             false,
-            "No recent heartbeats on both validators"
+            "Recent and healthy ApproveState and recent NewState but no recent Heartbeat messages"
         )
     }
 
     #[test]
-    fn no_recent_heartbeats_on_leader() {
+    fn recent_healthy_approve_state_and_recent_new_state_but_no_recent_heartbeats_on_leader() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.leader().id),
@@ -1318,12 +1318,12 @@ mod is_active {
         assert_eq!(
             is_active(&messages),
             false,
-            "No recent heartbeats on leader validator"
+            "Recent and healthy ApproveState and recent NewState but no recent Heartbeat on Leader validator"
         )
     }
 
     #[test]
-    fn no_recent_heartbeats_on_follower() {
+    fn recent_healthy_approve_state_and_recent_new_state_but_no_recent_heartbeats_on_follower() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
@@ -1358,12 +1358,12 @@ mod is_active {
         assert_eq!(
             is_active(&messages),
             false,
-            "No recent heartbeats on follower validator"
+            "Recent and healthy ApproveState and recent NewState but no recent Heartbeats on Follower validator"
         )
     }
 
     #[test]
-    fn no_approve_state_message() {
+    fn recent_new_state_and_recent_heartbeats_but_no_approve_state_message() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
@@ -1397,7 +1397,7 @@ mod is_active {
         assert_eq!(
             is_active(&messages),
             false,
-            "No approve state message on follower validators"
+            "Recent NewState and Heartbeat but there is no ApproveState message on Follower validator"
         )
     }
 }
@@ -1406,7 +1406,7 @@ mod is_ready {
     use super::*;
 
     #[test]
-    fn recent_messages_but_no_new_state() {
+    fn recent_heartbeats_but_no_new_state() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
@@ -1438,12 +1438,12 @@ mod is_ready {
         assert_eq!(
             is_ready(&messages),
             true,
-            "Recent hearbeat messages and no new state means its ready"
+            "Recent Heartbeat messages and no NewState means its ready"
         )
     }
 
     #[test]
-    fn no_recent_messages_and_no_new_state() {
+    fn no_recent_heartbeats_and_no_new_state() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.leader().id),
@@ -1475,12 +1475,12 @@ mod is_ready {
         assert_eq!(
             is_ready(&messages),
             false,
-            "No recent hearbeat messages on both validators and no new state means its not ready"
+            "No recent Heartbeat messages on both validators and no NewState means its not ready"
         )
     }
 
     #[test]
-    fn no_recent_messages_on_leader_and_no_new_state() {
+    fn no_recent_heartbeats_on_leader_and_no_new_state() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::minutes(10), channel.spec.validators.leader().id),
@@ -1512,12 +1512,12 @@ mod is_ready {
         assert_eq!(
             is_ready(&messages),
             false,
-            "No recent hearbeat messages on leader valdiator and no new state means its not ready"
+            "No recent Heartbeat messages on Leader validator and no NewState means its not ready"
         )
     }
 
     #[test]
-    fn no_recent_messages_on_follower_and_no_new_state() {
+    fn no_recent_heartbeats_on_follower_and_no_new_state() {
         let channel = DUMMY_CHANNEL.clone();
         let leader_heartbeats = vec![
             get_heartbeat_msg(Duration::zero(), channel.spec.validators.leader().id),
@@ -1549,7 +1549,7 @@ mod is_ready {
         assert_eq!(
             is_ready(&messages),
             false,
-            "No recent hearbeat messages on follower and no new state means its not ready"
+            "No recent Heartbeat messages on Follower and no NewState means its not ready"
         )
     }
 
@@ -1588,7 +1588,7 @@ mod is_ready {
         assert_eq!(
             is_ready(&messages),
             false,
-            "Recent hearbeat messages and a new state message means it is past the ready stage"
+            "Recent Heartbeat messages and a NewState message means it is past the ready stage"
         )
     }
 }
