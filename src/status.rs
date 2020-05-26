@@ -3,7 +3,7 @@ use chrono::{DateTime, Duration, Utc};
 use primitives::{
     market::Status as MarketStatus,
     sentry::{HeartbeatValidatorMessage, LastApprovedResponse, NewStateValidatorMessage},
-    validator::MessageTypes,
+    validator::{ApproveState, MessageTypes},
     BalancesMap, BigNum, Channel, ValidatorId,
 };
 use reqwest::Error;
@@ -86,6 +86,17 @@ impl Messages {
             .last_approved
             .as_ref()
             .and_then(|last_approved| last_approved.new_state.as_ref())
+    }
+
+    fn get_follower_approve_state_msg(&self) -> Option<&ApproveState> {
+        self.follower
+            .last_approved
+            .as_ref()
+            .and_then(|last_approved| last_approved.approve_state.as_ref())
+            .and_then(|approve_state| match &approve_state.msg {
+                MessageTypes::ApproveState(approve_state) => Some(approve_state),
+                _ => None,
+            })
     }
 
     fn has_leader_hb(&self) -> bool {
@@ -296,7 +307,7 @@ pub async fn get_status(sentry: &SentryApi, channel: &Channel) -> Result<Status,
     }
 
     // isActive & isReady (we don't need distinguish between Active & Ready here)
-    if is_active() && is_ready() {
+    if is_active(&messages) && is_ready(&messages) {
         Ok(Status::Active)
     } else {
         Ok(Status::Waiting)
@@ -376,25 +387,29 @@ async fn is_rejected_state(
 }
 
 fn is_unhealthy(messages: &Messages) -> bool {
-    let follower_approve_state = messages
-        .follower
-        .last_approved
-        .as_ref()
-        .and_then(|last_approved| last_approved.approve_state.as_ref())
-        .and_then(|approve_state| match &approve_state.msg {
-            MessageTypes::ApproveState(approve_state) => Some(approve_state),
-            _ => None,
-        });
+    let follower_approve_state = messages.get_follower_approve_state_msg();
     match (messages.has_leader_new_state(), follower_approve_state) {
         (true, Some(approve_state)) => !approve_state.is_healthy,
         _ => false,
     }
 }
 
-fn is_active() -> bool {
-    todo!()
+fn is_active(messages: &Messages) -> bool {
+    let follower_approve_state = messages.get_follower_approve_state_msg();
+    let is_healthy = match follower_approve_state {
+        Some(approve_state) => approve_state.is_healthy,
+        None => false,
+    };
+
+    messages.has_recent_leader_hb()
+        && messages.has_recent_follower_hb()
+        && messages.has_leader_new_state()
+        && messages.has_follower_approve_state()
+        && is_healthy
 }
 
-fn is_ready() -> bool {
-    todo!()
+fn is_ready(messages: &Messages) -> bool {
+    messages.has_recent_follower_hb()
+        && messages.has_recent_leader_hb()
+        && !messages.has_leader_new_state()
 }
