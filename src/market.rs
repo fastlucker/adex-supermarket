@@ -81,8 +81,6 @@ impl MarketApi {
         Ok(campaigns)
     }
 
-    // @TODO: Once we have the impled `type` param, pass it instead of filtering the response
-    // @see: https://github.com/AdExNetwork/adex-market/issues/110
     /// `skip` - how many records it should skip (pagination)
     async fn fetch_units_page(&self, ad_type: &str, skip: u64) -> Result<Vec<AdUnit>> {
         let url = format!(
