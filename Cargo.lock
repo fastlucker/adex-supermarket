@@ -1859,6 +1859,7 @@ dependencies = [
  "slog-term",
  "tokio",
  "toml",
+ "url",
  "wiremock",
 ]
 
@@ -2080,6 +2081,7 @@ dependencies = [
  "idna",
  "matches",
  "percent-encoding",
+ "serde",
 ]
 
 [[package]]

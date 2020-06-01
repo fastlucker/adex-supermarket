@@ -1,35 +1,39 @@
 use crate::{
-    market::{MarketApi, Statuses},
-    status::{is_finalized, IsFinalized, Status},
+    status::{get_status, Status},
     Config, SentryApi,
 };
-use primitives::{
-    market::{Campaign as MarketCampaign, StatusType, StatusType::*},
-    validator::MessageTypes,
-    BalancesMap, BigNum, Channel, ChannelId, ValidatorId,
-};
+use futures::future::{join_all, FutureExt};
+use primitives::{BalancesMap, Channel, ChannelId};
 use reqwest::Error;
-use slog::{error, info, warn, Logger};
+use slog::{error, info, Logger};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use url::Url;
 
 type Cached<T> = Arc<RwLock<T>>;
 
+pub type ActiveCache = HashMap<ChannelId, Campaign>;
+pub type FinalizedCache = HashSet<ChannelId>;
+
+pub enum ActiveAction {
+    Update(HashMap<ChannelId, (Status, BalancesMap)>),
+    New(ActiveCache),
+}
+
 #[derive(Debug, Clone)]
 pub struct Cache {
-    pub active: Cached<HashMap<ChannelId, Campaign>>,
-    pub finalized: Cached<HashSet<ChannelId>>,
-    pub balance_from_finalized: Cached<BalancesMap>,
-    market: Arc<MarketApi>,
+    pub active: Cached<ActiveCache>,
+    pub finalized: Cached<FinalizedCache>,
+    validators: HashSet<Url>,
     logger: Logger,
     sentry: SentryApi,
 }
 
-pub enum Action {
-    Update,
-    Finalize,
-}
+// pub enum Action {
+//     Update,
+//     Finalize,
+// }
 
 #[derive(Debug)]
 pub struct Campaign {
@@ -38,253 +42,233 @@ pub struct Campaign {
     balances: BalancesMap,
 }
 
-impl From<MarketCampaign> for Campaign {
-    fn from(market_campaign: MarketCampaign) -> Self {
+impl Campaign {
+    pub fn new(channel: Channel, status: Status, balances: BalancesMap) -> Self {
         Self {
-            channel: market_campaign.channel,
-            status: Status::from(&market_campaign.status),
-            balances: market_campaign.status.balances,
+            channel,
+            status,
+            balances,
         }
     }
 }
 
 impl Cache {
-    const NON_FINALIZED: [StatusType; 9] = [
-        Active,
-        Ready,
-        Pending,
-        Initializing,
-        Waiting,
-        Offline,
-        Disconnected,
-        Unhealthy,
-        Invalid,
-    ];
-
-    /// Fetches all the campaigns from the Market and returns the Cache instance
-    pub(crate) async fn initialize(
-        market: Arc<MarketApi>,
-        logger: Logger,
-        config: Config,
-    ) -> Result<Self, Error> {
+    /// Fetches all the campaigns from the Validators on initialization.
+    pub(crate) async fn initialize(logger: Logger, config: Config) -> Result<Self, Error> {
+        info!(
+            &logger,
+            "Initialize Cache"; "validators" => format_args!("{:?}", &config.validators)
+        );
         let sentry = SentryApi::new(config.timeouts.validator_request)?;
 
-        // we don't need a timeout for the initial fetching of the campaigns
-        // while the applicatoin is still starting
-        let all_campaigns = market.fetch_campaigns(&Statuses::All).await?;
+        let validators = config.validators.clone();
 
-        let (active, finalized, balances) = all_campaigns.into_iter().fold(
-            (
-                HashMap::default(),
-                HashSet::default(),
-                BalancesMap::default(),
-            ),
-            |(mut active, mut finalized, mut balances), market_campaign: MarketCampaign| {
-                let campaign = Campaign::from(market_campaign);
-                if let Status::Finalized(..) = &campaign.status {
-                    // we don't care if the campaign was already in the set
-                    finalized.insert(campaign.channel.id);
+        let cache = Self {
+            active: Default::default(),
+            finalized: Default::default(),
+            validators,
+            logger,
+            sentry,
+        };
+
+        // collect and initialize the active campaigns
+        cache.fetch_new_campaigns().await;
+
+        Ok(cache)
+    }
+
+    /// # Update the Campaigns in the Cache with:
+    /// Collects all the campaigns from all the Validators and computes their Statuses
+    /// - New Campaigns
+    /// - New Finalized Campaigns
+    pub async fn fetch_new_campaigns(&self) {
+        let campaigns = collect_all_campaigns(&self.logger, &self.sentry, &self.validators).await;
+
+        let (active, finalized) = campaigns.into_iter().fold(
+            (HashMap::new(), HashSet::new()),
+            |(mut active, mut finalized), (id, campaign)| {
+                match campaign.status {
+                    Status::Finalized(_) => {
+                        finalized.insert(id);
+                    }
+                    _ => {
+                        active.insert(id, campaign);
+                    }
                 }
 
-                balances =
-                    campaign
-                        .balances
-                        .iter()
-                        .fold(balances, |mut acc, (publisher, balance)| {
-                            acc.entry(publisher.clone())
-                                .and_modify(|current_balance| *current_balance += balance)
-                                .or_insert_with(|| balance.clone());
-
-                            acc
-                        });
-
-                active.insert(campaign.channel.id, campaign);
-
-                (active, finalized, balances)
+                (active, finalized)
             },
         );
 
-        Ok(Self {
-            market,
-            active: Arc::new(RwLock::new(active)),
-            finalized: Arc::new(RwLock::new(finalized)),
-            balance_from_finalized: Arc::new(RwLock::new(balances)),
-            logger,
-            sentry,
-        })
+        self.update(ActiveAction::New(active), finalized).await
     }
-
-    #[allow(dead_code)]
-    pub async fn get_earnings_for(&self, earner: &ValidatorId) -> BigNum {
-        let active_earnings = {
-            let active = self.active.read().await;
-
-            active.values().fold(BigNum::from(0), |mut acc, campaign| {
-                if let Some(earnings) = campaign.balances.get(earner) {
-                    acc += earnings;
+    /// Updates the full Cache with the new values:
+    ///
+    /// 1. Updates Active cache:
+    /// - If we have new Campaigns it extends the Active Campaigns with the new ones
+    /// - If we have update for Status & BalancesMap it finds the Campaigns and updates them
+    /// - Remove the Finalized `ChannelId`s from the Active Campaigns
+    ///
+    /// 2. Updates Finalized cache
+    /// - Extend the Finalized `ChannelId`s with the new ones
+    pub async fn update(&self, new_active: ActiveAction, new_finalized: FinalizedCache) {
+        // Updates Active cache
+        // - Extend the Active Campaigns with the new ones
+        // - Remove the Finalized `ChannelId`s from the Active Campaigns
+        {
+            match &new_active {
+                ActiveAction::New(new_active) => {
+                    // let ids = debug_iter(new_active.keys());
+                    info!(&self.logger, "Adding New {} Active Campaigns", new_active.len(); "ChannelIds" => format_args!("{:?}", new_active.keys()));
                 }
 
-                acc
-            })
-        }; // ReadLock is realeased here
+                ActiveAction::Update(update_active) => {
+                    // let ids = debug_iter(update_active.keys());
+                    info!(&self.logger, "Updating {} Active Campaigns", update_active.len(); "ChannelIds" => format_args!("{:?}", update_active.keys()));
+                }
+            }
 
-        let finalized_earnings = {
-            let finalized_balances = self.balance_from_finalized.read().await;
+            let mut active = self.active.write().await;
 
-            finalized_balances.get(earner).cloned().unwrap_or_default()
-        }; // ReadLock is realeased here
+            match new_active {
+                ActiveAction::New(new_active) => active.extend(new_active),
+                ActiveAction::Update(update_active) => {
+                    for (id, (new_status, new_balances)) in update_active {
+                        // TODO: Check if this actually mutates the Campaign
+                        active.get_mut(&id).and_then(|campaign| {
+                            campaign.status = new_status;
+                            campaign.balances = new_balances;
 
-        active_earnings + finalized_earnings
-    }
-
-    /// Will update the campaigns in the Cache, fetching new campaigns from the Market
-    pub async fn fetch_new_campaigns(&self) -> Result<(), Error> {
-        let statuses = Statuses::Only(&Self::NON_FINALIZED);
-        let fetched_campaigns = self.market.fetch_campaigns(&statuses).await?;
-
-        let current_campaigns = self.active.clone();
-
-        let new_cache_campaigns: Vec<(ChannelId, Campaign)> = {
-            // we need to release the read lock before writing!
-            // Hence the scope of the `filtered` variable
-            let read_campaigns = current_campaigns.read().await;
-
-            fetched_campaigns
-                .into_iter()
-                .filter_map(|market_campaign| {
-                    // if the key doesn't exist, add a campaign
-                    if !read_campaigns.contains_key(&market_campaign.channel.id) {
-                        Some((market_campaign.channel.id, Campaign::from(market_campaign)))
-                    } else {
-                        None
+                            Some(campaign)
+                        });
                     }
-                })
-                .collect()
-        };
+                }
+            }
 
-        if !new_cache_campaigns.is_empty() {
-            let new_count = new_cache_campaigns.len();
-            let mut campaigns = current_campaigns.write().await;
-            campaigns.extend(new_cache_campaigns.into_iter());
-            info!(
-                &self.logger,
-                "Added {} new Campaigns ({:?}) to the Cache", new_count, statuses
-            );
-        } else {
-            info!(
-                &self.logger,
-                "No new Campaigns ({:?}) added to the Cache", statuses
-            );
-        }
+            info!(&self.logger, "Try to Finalize Campaigns in the Active Cache"; "finalized" => format_args!("{:?}", &new_finalized));
 
-        Ok(())
+            for id in new_finalized.iter() {
+                // remove from active campaigns and log
+                if let Some(campaign) = active.remove(id) {
+                    info!(&self.logger, "Removed Campaign ({:?}) from Active Cache", id; "campaign" => ?campaign);
+                }
+                // the None variant is when a campaign is Finalized before it was inserted inside the Active Cache
+            }
+        } // Active cache - release of RwLockWriteGuard
+
+        // Updates Finalized cache
+        // - Extend the Finalized `ChannelId`s with the new ones
+        {
+            info!(&self.logger, "Extend with {} Finalized Campaigns", new_finalized.len(); "finalized" => format_args!("{:?}", &new_finalized));
+            let mut finalized = self.finalized.write().await;
+
+            finalized.extend(new_finalized);
+        } // Finalized cache - release of RwLockWriteGuard
     }
 
     /// Reads the active campaigns and schedules a list of non-finalized campaigns
     /// for update from the Validators
-
-    /// Checks if campaign is finalized:
-    /// If Yes:
-    /// - adds it to the Finalized cache
-    /// - adds up the latest publishers' Balances
-    /// If No:
-    /// - updates the latest Balances from the latest leader's NewState
-    pub async fn update_campaigns(&self) {
+    ///
+    /// Checks the Campaign status:
+    /// If Finalized:
+    /// - Add to the Finalized cache
+    /// Other statuses:
+    /// - Update the Status & Balances from the latest Leader NewState
+    pub async fn fetch_campaign_updates(&self) {
         // we need this scope to drop the Read Lock on `self.active`
         // before performing the finalize & update actions
-        let (finalize, update) = {
-            let active_campaigns = self.active.read().await;
+        let (update, finalize) = {
+            let active = self.active.read().await;
 
-            let mut finalize = HashMap::new();
             let mut update = HashMap::new();
-            for (id, campaign) in active_campaigns.iter() {
-                match self.campaign_action(campaign).await {
-                    Ok((Action::Finalize, balances)) => {
-                        finalize.insert(*id, balances);
+            let mut finalize = HashSet::new();
+            for (id, campaign) in active.iter() {
+                match get_status(&self.sentry, &campaign.channel).await {
+                    Ok((Status::Finalized(_), _balances)) => {
+                        finalize.insert(*id);
                     }
-                    Ok((Action::Update, balances)) => {
-                        if !balances.is_empty() {
-                            update.insert(*id, balances);
-                        }
+                    Ok((new_status, new_balances)) => {
+                        update.insert(*id, (new_status, new_balances));
                     }
                     Err(err) => error!(
                         &self.logger,
-                        "Error checking if Campaign ({:?}) is finalized: {}", id, err
+                        "Error getting Campaign ({:?}) status", id; "error" => ?err
                     ),
                 };
             }
 
-            (finalize, update)
+            (update, finalize)
         };
 
-        self.finalize_campaigns(finalize).await;
-        self.update_campaigns_balances(update).await;
+        self.update(ActiveAction::Update(update), finalize).await;
     }
+}
 
-    /// - Adds the Channel Id to the Finalized cache
-    /// - Adds up the latest publishers' Balances (finalized_balances)
-    async fn finalize_campaigns(&self, campaigns: HashMap<ChannelId, BalancesMap>) {
-        {
-            // Put in finalized
-            self.finalized.write().await.extend(campaigns.keys());
-        }
-        let mut active = self.active.write().await;
-        // Sum the balances in balances_from_finalized
-        let mut finalized_balances = self.balance_from_finalized.write().await;
+async fn collect_all_campaigns(
+    logger: &Logger,
+    sentry: &SentryApi,
+    validators: &HashSet<Url>,
+) -> HashMap<ChannelId, Campaign> {
+    let mut campaigns = HashMap::new();
 
-        for (remove_id, latest_balances) in campaigns {
-            for (publisher, value) in latest_balances.into_iter() {
-                finalized_balances
-                    .entry(publisher)
-                    .and_modify(|current_balance| *current_balance += &value)
-                    .or_insert(value);
-            }
+    for channel in get_all_channels(logger, sentry, validators).await {
+        // @TODO: We need to figure out a way to distinguish between Channels, check if they are the same and to remove incorrect ones
+        // For now just check if the channel is already inside the fetched channels and log if it is
+        if campaigns.contains_key(&channel.id) {
+            // @TODO: Issue #23 Check ChannelId and the received Channel hash
+            info!(
+                logger,
+                "Skipping Channel ({:?}) because it's already fetched from another Validator",
+                &channel.id
+            )
+        } else {
+            match get_status(&sentry, &channel).await {
+                Ok((status, balances)) => {
+                    let channel_id = channel.id;
+                    let campaign = Campaign::new(channel, status, balances);
 
-            match active.remove_entry(&remove_id) {
-                Some((id, campaign)) => info!(
-                    &self.logger,
-                    "Campaign ({:?}) successfully removed from the cache. {:#?}", id, campaign
+                    campaigns.insert(channel_id, campaign);
+                }
+                Err(err) => error!(
+                    logger,
+                    "Failed to fetch Campaign ({:?}) status from Validator", channel.id; "error" => ?err
                 ),
-                None => warn!(
-                    &self.logger,
-                    "Campaign ({:?}) was not found in the cache and couldn't be deleted!",
-                    remove_id
-                ),
             }
         }
     }
 
-    async fn update_campaigns_balances(&self, balances: HashMap<ChannelId, BalancesMap>) {
-        let mut active = self.active.write().await;
+    campaigns
+}
 
-        for (id, new_balance) in balances {
-            if let Some(campaign) = active.get_mut(&id) {
-                campaign.balances = new_balance;
+/// Retrieves all channels from all Validator URLs
+async fn get_all_channels<'a>(
+    logger: &Logger,
+    sentry: &SentryApi,
+    validators: &HashSet<Url>,
+) -> Vec<Channel> {
+    let futures = validators.iter().map(|validator| {
+        sentry
+            .get_validator_channels(validator)
+            .map(move |result| (validator, result))
+    });
+
+    join_all(futures)
+    .await
+    .into_iter()
+    .filter_map(|(validator, result)| match result {
+            Ok(channels) => {
+                info!(logger, "Fetched {} active Channels from Validator ({})", channels.len(), validator);
+
+                Some(channels)
+            },
+            Err(err) => {
+                error!(logger, "Failed to fetch Channels from Validator ({})", validator; "error" => ?err);
+
+                None
             }
-        }
-    }
-
-    /// Calls is_finalized and prepares the campaign for an Action:
-    /// - Update
-    /// - Finalized
-    async fn campaign_action(&self, campaign: &Campaign) -> Result<(Action, BalancesMap), Error> {
-        let is_finalized = is_finalized(&self.sentry, &campaign.channel).await?;
-
-        match is_finalized {
-            IsFinalized::Yes { balances, .. } => Ok((Action::Finalize, balances)),
-            IsFinalized::No { leader } => {
-                let new_balances = (*leader)
-                    .last_approved
-                    .and_then(|last_approved| last_approved.new_state)
-                    .and_then(|new_state| match new_state.msg {
-                        MessageTypes::NewState(new_state) => Some(new_state.balances),
-                        _ => None,
-                    });
-
-                Ok((Action::Update, new_balances.unwrap_or_default()))
-            }
-        }
-    }
+        })
+    .flatten()
+    .collect()
 }
 
 #[cfg(test)]
@@ -295,7 +279,7 @@ mod test {
     fn setup_cache(
         active: HashMap<ChannelId, Campaign>,
         finalized: HashSet<ChannelId>,
-        balances_for_finalized: BalancesMap,
+        validators: HashSet<Url>,
     ) -> Result<Cache, Box<dyn std::error::Error>> {
         use slog::Drain;
 
@@ -309,56 +293,11 @@ mod test {
         let cache = Cache {
             active: Cached::new(RwLock::new(active)),
             finalized: Cached::new(RwLock::new(finalized)),
-            balance_from_finalized: Cached::new(RwLock::new(balances_for_finalized)),
-            market: Arc::new(market),
             logger,
             sentry,
+            validators,
         };
 
         Ok(cache)
-    }
-
-    #[tokio::test]
-    async fn test_get_earnings_for_empty_cache() -> Result<(), Box<dyn std::error::Error>> {
-        let cache = setup_cache(Default::default(), Default::default(), Default::default())?;
-
-        let earnings = cache.get_earnings_for(&IDS["leader"]).await;
-        assert_eq!(BigNum::from(0), earnings);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_get_earnings_for() -> Result<(), Box<dyn std::error::Error>> {
-        let channel = DUMMY_CHANNEL.clone();
-        let channel_id = channel.id;
-        let balances = vec![(IDS["leader"], 110.into()), (IDS["follower"], 200.into())];
-        let finalized_balances = vec![(IDS["publisher"], 330.into()), (IDS["follower"], 20.into())];
-
-        let campaign = Campaign {
-            balances: balances.into_iter().collect(),
-            channel,
-            status: Status::Active,
-        };
-
-        let active = vec![(channel_id, campaign)].into_iter().collect();
-        let finalized_balances = finalized_balances.into_iter().collect();
-
-        // since we don't really check the finalized campaigns, we can make it empty
-        let cache = setup_cache(active, Default::default(), finalized_balances)?;
-
-        let leader = cache.get_earnings_for(&IDS["leader"]).await;
-        assert_eq!(BigNum::from(110), leader);
-
-        let follower = cache.get_earnings_for(&IDS["follower"]).await;
-        assert_eq!(BigNum::from(220), follower);
-
-        let publisher = cache.get_earnings_for(&IDS["publisher"]).await;
-        assert_eq!(BigNum::from(330), publisher);
-
-        let tester_is_zero = cache.get_earnings_for(&IDS["tester"]).await;
-        assert_eq!(BigNum::from(0), tester_is_zero);
-
-        Ok(())
     }
 }
