@@ -30,11 +30,6 @@ pub struct Cache {
     sentry: SentryApi,
 }
 
-// pub enum Action {
-//     Update,
-//     Finalize,
-// }
-
 #[derive(Debug)]
 pub struct Campaign {
     channel: Channel,
@@ -102,6 +97,7 @@ impl Cache {
 
         self.update(ActiveAction::New(active), finalized).await
     }
+
     /// Updates the full Cache with the new values:
     ///
     /// 1. Updates Active cache:
@@ -118,12 +114,10 @@ impl Cache {
         {
             match &new_active {
                 ActiveAction::New(new_active) => {
-                    // let ids = debug_iter(new_active.keys());
                     info!(&self.logger, "Adding New {} Active Campaigns", new_active.len(); "ChannelIds" => format_args!("{:?}", new_active.keys()));
                 }
 
                 ActiveAction::Update(update_active) => {
-                    // let ids = debug_iter(update_active.keys());
                     info!(&self.logger, "Updating {} Active Campaigns", update_active.len(); "ChannelIds" => format_args!("{:?}", update_active.keys()));
                 }
             }
@@ -134,7 +128,6 @@ impl Cache {
                 ActiveAction::New(new_active) => active.extend(new_active),
                 ActiveAction::Update(update_active) => {
                     for (id, (new_status, new_balances)) in update_active {
-                        // TODO: Check if this actually mutates the Campaign
                         active.get_mut(&id).and_then(|campaign| {
                             campaign.status = new_status;
                             campaign.balances = new_balances;
@@ -218,7 +211,7 @@ async fn collect_all_campaigns(
             // @TODO: Issue #23 Check ChannelId and the received Channel hash
             info!(
                 logger,
-                "Skipping Channel ({:?}) because it's already fetched from another Validator",
+                "Skipping Campaign ({:?}) because it's already fetched from another Validator",
                 &channel.id
             )
         } else {
@@ -274,8 +267,13 @@ async fn get_all_channels<'a>(
 #[cfg(test)]
 mod test {
     use super::*;
+    
+    // TODO: Remove
+    #[allow(unused_imports)]
     use primitives::util::tests::prep_db::{DUMMY_CHANNEL, IDS};
 
+    // TODO: Remove
+    #[allow(dead_code)]
     fn setup_cache(
         active: HashMap<ChannelId, Campaign>,
         finalized: HashSet<ChannelId>,
@@ -287,7 +285,6 @@ mod test {
         let drain = slog_async::Async::new(drain).build().fuse();
         let logger = slog::Logger::root(drain, slog::o!());
 
-        let market = MarketApi::new("http://localhost:8005".into(), logger.clone())?;
         let sentry = SentryApi::new(std::time::Duration::from_secs(60))?;
 
         let cache = Cache {
