@@ -31,7 +31,7 @@ fn get_request_channel(server: &MockServer) -> Channel {
     channel
 }
 
-fn get_heartbeat_msg(recency: Duration, from: ValidatorId) -> HeartbeatValidatorMessage {
+pub(crate) fn get_heartbeat_msg(recency: Duration, from: ValidatorId) -> HeartbeatValidatorMessage {
     HeartbeatValidatorMessage {
         from,
         received: Utc::now() - recency,
@@ -43,9 +43,9 @@ fn get_heartbeat_msg(recency: Duration, from: ValidatorId) -> HeartbeatValidator
     }
 }
 
-fn get_approve_state_msg(is_healthy: bool) -> ApproveStateValidatorMessage {
+pub(crate) fn get_approve_state_msg(is_healthy: bool) -> ApproveStateValidatorMessage {
     ApproveStateValidatorMessage {
-        from: DUMMY_VALIDATOR_LEADER.id,
+        from: DUMMY_VALIDATOR_FOLLOWER.id,
         received: Utc::now(),
         msg: MessageTypes::ApproveState(ApproveState {
             state_root: String::from("0x0"),
@@ -55,7 +55,7 @@ fn get_approve_state_msg(is_healthy: bool) -> ApproveStateValidatorMessage {
     }
 }
 
-fn get_new_state_msg() -> NewStateValidatorMessage {
+pub(crate) fn get_new_state_msg() -> NewStateValidatorMessage {
     NewStateValidatorMessage {
         from: DUMMY_VALIDATOR_LEADER.id,
         received: Utc::now(),
@@ -67,7 +67,7 @@ fn get_new_state_msg() -> NewStateValidatorMessage {
     }
 }
 
-fn get_new_state_validator_msg() -> ValidatorMessage {
+pub(crate) fn get_new_state_validator_msg() -> ValidatorMessage {
     ValidatorMessage {
         from: DUMMY_VALIDATOR_LEADER.id,
         received: Utc::now(),

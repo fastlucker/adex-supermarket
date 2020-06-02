@@ -17,7 +17,9 @@ pub type ActiveCache = HashMap<ChannelId, Campaign>;
 pub type FinalizedCache = HashSet<ChannelId>;
 
 pub enum ActiveAction {
+    /// Update exiting Campaigns in the Cache
     Update(HashMap<ChannelId, (Status, BalancesMap)>),
+    /// Add new and/or replace (if Campaign exist already) Campaigns to the Cache
     New(ActiveCache),
 }
 
@@ -30,7 +32,7 @@ pub struct Cache {
     sentry: SentryApi,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Campaign {
     channel: Channel,
     status: Status,
@@ -82,15 +84,17 @@ impl Cache {
         let (active, finalized) = campaigns.into_iter().fold(
             (HashMap::new(), HashSet::new()),
             |(mut active, mut finalized), (id, campaign)| {
-                match campaign.status {
-                    Status::Finalized(_) => {
-                        finalized.insert(id);
-                    }
-                    _ => {
-                        active.insert(id, campaign);
+                // Handle new Campaigns only if the Active & Finalized cache have this ChannelId
+                if !active.contains_key(&id) && !finalized.contains(&id) {
+                    match campaign.status {
+                        Status::Finalized(_) => {
+                            finalized.insert(id);
+                        }
+                        _ => {
+                            active.insert(id, campaign);
+                        }
                     }
                 }
-
                 (active, finalized)
             },
         );
@@ -267,34 +271,153 @@ async fn get_all_channels<'a>(
 #[cfg(test)]
 mod test {
     use super::*;
-    
-    // TODO: Remove
-    #[allow(unused_imports)]
-    use primitives::util::tests::prep_db::{DUMMY_CHANNEL, IDS};
 
-    // TODO: Remove
+    use crate::status::test::{get_approve_state_msg, get_heartbeat_msg, get_new_state_msg};
+    use crate::{config::DEVELOPMENT, util::test::discard_logger};
+    use chrono::{Duration, Utc};
+    use primitives::{
+        sentry::{
+            ChannelListResponse, LastApproved, LastApprovedResponse, ValidatorMessage,
+            ValidatorMessageResponse,
+        },
+        util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_FOLLOWER, DUMMY_VALIDATOR_LEADER},
+    };
+    use wiremock::{
+        matchers::{method, path},
+        Mock, MockServer, ResponseTemplate,
+    };
+
+    // @TODO: Issue #23 Remove after writing test and using the function
     #[allow(dead_code)]
     fn setup_cache(
         active: HashMap<ChannelId, Campaign>,
         finalized: HashSet<ChannelId>,
         validators: HashSet<Url>,
     ) -> Result<Cache, Box<dyn std::error::Error>> {
-        use slog::Drain;
-
-        let drain = slog::Discard.fuse();
-        let drain = slog_async::Async::new(drain).build().fuse();
-        let logger = slog::Logger::root(drain, slog::o!());
-
         let sentry = SentryApi::new(std::time::Duration::from_secs(60))?;
+        let logger = discard_logger();
 
         let cache = Cache {
-            active: Cached::new(RwLock::new(active)),
-            finalized: Cached::new(RwLock::new(finalized)),
+            active: Arc::new(RwLock::new(active)),
+            finalized: Arc::new(RwLock::new(finalized)),
             logger,
             sentry,
             validators,
         };
 
         Ok(cache)
+    }
+
+    #[tokio::test]
+    async fn cache_initializes() {
+        let mock_server = MockServer::start().await;
+
+        let leader_url = format!("{}/leader", mock_server.uri());
+        let follower_url = format!("{}/follower", mock_server.uri());
+
+        let mut channel = DUMMY_CHANNEL.clone();
+        let mut leader = DUMMY_VALIDATOR_LEADER.clone();
+        let leader_id = leader.id.clone();
+        leader.url = leader_url.clone();
+
+        let mut follower = DUMMY_VALIDATOR_FOLLOWER.clone();
+        let follower_id = follower.id.clone();
+        follower.url = follower_url.clone();
+
+        channel.spec.validators = (leader, follower).into();
+
+        let mut config = DEVELOPMENT.clone();
+        config.validators = vec![leader_url.parse().unwrap(), follower_url.parse().unwrap()]
+            .into_iter()
+            .collect();
+
+        let leader_channels = ChannelListResponse {
+            channels: vec![channel.clone()],
+            total_pages: 1,
+        };
+        let leader_last_approved = LastApprovedResponse {
+            last_approved: Some(LastApproved {
+                new_state: Some(get_new_state_msg()),
+                approve_state: None,
+            }),
+            heartbeats: Some(vec![
+                get_heartbeat_msg(Duration::zero(), follower_id),
+                get_heartbeat_msg(Duration::zero(), leader_id),
+            ]),
+        };
+        let leader_latest_new_state = ValidatorMessageResponse {
+            validator_messages: vec![ValidatorMessage {
+                from: follower_id,
+                received: Utc::now(),
+                msg: get_new_state_msg().msg,
+            }],
+        };
+
+        let follower_channels = ChannelListResponse {
+            channels: vec![channel.clone()],
+            total_pages: 1,
+        };
+
+        let follower_last_approved = LastApprovedResponse {
+            last_approved: Some(LastApproved {
+                new_state: None,
+                approve_state: Some(get_approve_state_msg(true)),
+            }),
+            heartbeats: Some(vec![
+                get_heartbeat_msg(Duration::zero(), follower_id),
+                get_heartbeat_msg(Duration::zero(), leader_id),
+            ]),
+        };
+
+        Mock::given(method("GET"))
+            .and(path("/leader/channel/list"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&leader_channels))
+            .expect(1_u64)
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/leader/last-approved"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&leader_last_approved))
+            .expect(1_u64)
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/leader/validator-messages/{}/NewState",
+                &leader_id
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&leader_latest_new_state))
+            .expect(1_u64)
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/follower/channel/list"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&follower_channels))
+            .expect(1_u64)
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/follower/last-approved"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&follower_last_approved))
+            .expect(1_u64)
+            .mount(&mock_server)
+            .await;
+
+        let cache = Cache::initialize(discard_logger(), config)
+            .await
+            .expect("Should initialize");
+
+        let active_cache = cache.active.read().await;
+        let active_campaign = active_cache
+            .get(&channel.id)
+            .expect("This Campaign should be active");
+
+        assert_eq!(Status::Waiting, active_campaign.status);
+        // TODO: Issue #23 Add a BalancesMap and expect it!
+        assert_eq!(BalancesMap::default(), active_campaign.balances);
     }
 }

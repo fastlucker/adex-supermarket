@@ -14,6 +14,7 @@ pub mod config;
 pub mod market;
 pub mod sentry_api;
 pub mod status;
+pub mod util;
 
 use market::MarketApi;
 

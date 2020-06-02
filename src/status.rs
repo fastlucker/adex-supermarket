@@ -9,7 +9,7 @@ use reqwest::Error;
 
 #[cfg(test)]
 #[path = "status_test.rs"]
-mod test;
+pub mod test;
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum Status {
@@ -128,11 +128,7 @@ impl Messages {
     }
 
     fn has_leader_new_state(&self) -> bool {
-        self.leader
-            .last_approved
-            .as_ref()
-            .map(|last_approved| last_approved.new_state.is_some())
-            .unwrap_or(false)
+        self.get_leader_new_state().is_some()
     }
 
     /// `from`: If `None` it will just check for a recent Heartbeat

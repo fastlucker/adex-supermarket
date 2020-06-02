@@ -7,11 +7,11 @@ use std::time::Duration;
 use url::Url;
 
 lazy_static! {
-    static ref DEVELOPMENT: Config = {
+    pub static ref DEVELOPMENT: Config = {
         toml::from_str(include_str!("../config/dev.toml"))
             .expect("Failed to parse dev.toml config file")
     };
-    static ref PRODUCTION: Config = {
+    pub static ref PRODUCTION: Config = {
         toml::from_str(include_str!("../config/prod.toml"))
             .expect("Failed to parse prod.toml config file")
     };
