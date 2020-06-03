@@ -277,10 +277,11 @@ mod test {
     use chrono::{Duration, Utc};
     use primitives::{
         sentry::{
-            ChannelListResponse, LastApproved, LastApprovedResponse, ValidatorMessage,
-            ValidatorMessageResponse, NewStateValidatorMessage,
+            ChannelListResponse, LastApproved, LastApprovedResponse, NewStateValidatorMessage,
+            ValidatorMessage, ValidatorMessageResponse,
         },
-        util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_FOLLOWER, DUMMY_VALIDATOR_LEADER}, validator::{NewState, MessageTypes},
+        util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_FOLLOWER, DUMMY_VALIDATOR_LEADER},
+        validator::{MessageTypes, NewState},
     };
     use wiremock::{
         matchers::{method, path},
@@ -451,7 +452,10 @@ mod test {
             balances: Default::default(),
         };
 
-        let expected_balances: BalancesMap = vec![(leader_id, 10.into()), (follower_id, 100.into())].into_iter().collect();
+        let expected_balances: BalancesMap =
+            vec![(leader_id, 10.into()), (follower_id, 100.into())]
+                .into_iter()
+                .collect();
         let expected_status = Status::Initializing;
 
         let leader_new_state = NewStateValidatorMessage {
