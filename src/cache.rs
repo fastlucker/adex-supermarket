@@ -278,9 +278,9 @@ mod test {
     use primitives::{
         sentry::{
             ChannelListResponse, LastApproved, LastApprovedResponse, ValidatorMessage,
-            ValidatorMessageResponse,
+            ValidatorMessageResponse, NewStateValidatorMessage,
         },
-        util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_FOLLOWER, DUMMY_VALIDATOR_LEADER},
+        util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_FOLLOWER, DUMMY_VALIDATOR_LEADER}, validator::{NewState, MessageTypes},
     };
     use wiremock::{
         matchers::{method, path},
@@ -308,28 +308,36 @@ mod test {
         Ok(cache)
     }
 
+    fn setup_channel(leader_url: &Url, follower_url: &Url) -> Channel {
+        let mut channel = DUMMY_CHANNEL.clone();
+        let mut leader = DUMMY_VALIDATOR_LEADER.clone();
+        leader.url = leader_url.to_string();
+
+        let mut follower = DUMMY_VALIDATOR_FOLLOWER.clone();
+        follower.url = follower_url.to_string();
+
+        channel.spec.validators = (leader, follower).into();
+
+        channel
+    }
+
     #[tokio::test]
     async fn cache_initializes() {
         let mock_server = MockServer::start().await;
 
-        let leader_url = format!("{}/leader", mock_server.uri());
-        let follower_url = format!("{}/follower", mock_server.uri());
+        let leader_url = format!("{}/leader", mock_server.uri())
+            .parse()
+            .expect("Valid URL");
+        let follower_url = format!("{}/follower", mock_server.uri())
+            .parse()
+            .expect("Valid URL");
 
-        let mut channel = DUMMY_CHANNEL.clone();
-        let mut leader = DUMMY_VALIDATOR_LEADER.clone();
-        let leader_id = leader.id.clone();
-        leader.url = leader_url.clone();
-
-        let mut follower = DUMMY_VALIDATOR_FOLLOWER.clone();
-        let follower_id = follower.id.clone();
-        follower.url = follower_url.clone();
-
-        channel.spec.validators = (leader, follower).into();
+        let channel = setup_channel(&leader_url, &follower_url);
+        let leader_id = channel.spec.validators.leader().id;
+        let follower_id = channel.spec.validators.follower().id;
 
         let mut config = DEVELOPMENT.clone();
-        config.validators = vec![leader_url.parse().unwrap(), follower_url.parse().unwrap()]
-            .into_iter()
-            .collect();
+        config.validators = vec![leader_url, follower_url].into_iter().collect();
 
         let leader_channels = ChannelListResponse {
             channels: vec![channel.clone()],
@@ -386,7 +394,7 @@ mod test {
         Mock::given(method("GET"))
             .and(path(format!(
                 "/leader/validator-messages/{}/NewState",
-                &leader_id
+                leader_id
             )))
             .respond_with(ResponseTemplate::new(200).set_body_json(&leader_latest_new_state))
             .expect(1_u64)
@@ -419,5 +427,154 @@ mod test {
         assert_eq!(Status::Waiting, active_campaign.status);
         // TODO: Issue #23 Add a BalancesMap and expect it!
         assert_eq!(BalancesMap::default(), active_campaign.balances);
+    }
+
+    #[tokio::test]
+    async fn cache_updates_campaign_with_new_status_and_balances_map() {
+        let mock_server = MockServer::start().await;
+
+        let leader_url = format!("{}/leader", mock_server.uri())
+            .parse()
+            .expect("Valid URL");
+        let follower_url = format!("{}/follower", mock_server.uri())
+            .parse()
+            .expect("Valid URL");
+
+        let channel = setup_channel(&leader_url, &follower_url);
+        let channel_id = channel.id;
+        let leader_id = channel.spec.validators.leader().id;
+        let follower_id = channel.spec.validators.follower().id;
+
+        let campaign = Campaign {
+            channel,
+            status: Status::Waiting,
+            balances: Default::default(),
+        };
+
+        let expected_balances: BalancesMap = vec![(leader_id, 10.into()), (follower_id, 100.into())].into_iter().collect();
+        let expected_status = Status::Initializing;
+
+        let leader_new_state = NewStateValidatorMessage {
+            from: leader_id,
+            received: Utc::now(),
+            msg: MessageTypes::NewState(NewState {
+                signature: String::from("0x0"),
+                state_root: String::from("0x0"),
+                balances: expected_balances.clone(),
+            }),
+        };
+
+        let leader_last_approved = LastApprovedResponse {
+            last_approved: Some(LastApproved {
+                new_state: Some(leader_new_state),
+                approve_state: None,
+            }),
+            // No Heartbeats means that we are still Status::Initializing
+            heartbeats: Some(vec![
+                get_heartbeat_msg(Duration::zero(), leader_id),
+                get_heartbeat_msg(Duration::zero(), follower_id),
+            ]),
+        };
+
+        // No No ApproveState & Heartbeats means that we are still Status::Initializing
+        let follower_last_approved = LastApprovedResponse {
+            last_approved: Some(LastApproved {
+                new_state: None,
+                approve_state: None,
+            }),
+
+            heartbeats: None,
+        };
+
+        Mock::given(method("GET"))
+            .and(path("/leader/last-approved"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&leader_last_approved))
+            .expect(1_u64)
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/follower/last-approved"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&follower_last_approved))
+            .expect(1_u64)
+            .mount(&mock_server)
+            .await;
+
+        let validators = vec![leader_url, follower_url].into_iter().collect();
+
+        let init_active = vec![(channel_id, campaign)].into_iter().collect();
+
+        let cache =
+            setup_cache(init_active, Default::default(), validators).expect("Should create Cache");
+
+        cache.fetch_campaign_updates().await;
+
+        let active = cache.active.read().await;
+        let cache_channel = active
+            .get(&channel_id)
+            .expect("Campaign should be in Active Cache");
+
+        assert_eq!(expected_balances, cache_channel.balances);
+        assert_eq!(expected_status, cache_channel.status);
+
+        assert!(cache.finalized.read().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn cache_finalizes_campaign() {
+        let mock_server = MockServer::start().await;
+
+        let leader_url = format!("{}/leader", mock_server.uri())
+            .parse()
+            .expect("Valid URL");
+        let follower_url = format!("{}/follower", mock_server.uri())
+            .parse()
+            .expect("Valid URL");
+
+        let mut channel = setup_channel(&leader_url, &follower_url);
+        // if `valid_until < Now` the Campaign is `Expired`
+        channel.valid_until = Utc::now() - Duration::minutes(1);
+        let channel_id = channel.id;
+        let leader_id = channel.spec.validators.leader().id;
+        let follower_id = channel.spec.validators.follower().id;
+
+        let campaign = Campaign {
+            channel,
+            status: Status::Waiting,
+            balances: Default::default(),
+        };
+
+        let leader_last_approved = LastApprovedResponse {
+            last_approved: Some(LastApproved {
+                new_state: Some(get_new_state_msg()),
+                approve_state: None,
+            }),
+            heartbeats: Some(vec![
+                get_heartbeat_msg(Duration::zero(), follower_id),
+                get_heartbeat_msg(Duration::zero(), leader_id),
+            ]),
+        };
+
+        Mock::given(method("GET"))
+            .and(path("/leader/last-approved"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&leader_last_approved))
+            .expect(1_u64)
+            .mount(&mock_server)
+            .await;
+
+        let validators = vec![leader_url, follower_url].into_iter().collect();
+
+        let init_active = vec![(channel_id, campaign)].into_iter().collect();
+
+        let cache =
+            setup_cache(init_active, Default::default(), validators).expect("Should create Cache");
+
+        cache.fetch_campaign_updates().await;
+
+        assert!(cache.active.read().await.is_empty());
+        let finalized = cache.finalized.read().await;
+
+        assert_eq!(1, finalized.len());
+        assert_eq!(Some(&channel_id), finalized.get(&channel_id));
     }
 }
