@@ -1,7 +1,7 @@
 # The list of Validators' Urls for fetching the Campaigns from
 validators = ["http://localhost:8005/", "http://localhost:8006/"]
 
-# is seconds - 4 minutes
+# in seconds - 4 minutes
 recency = 240
 fetch_campaigns_every = 60
 update_campaigns_every = 20

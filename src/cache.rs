@@ -85,6 +85,7 @@ impl Cache {
             (HashMap::new(), HashSet::new()),
             |(mut active, mut finalized), (id, campaign)| {
                 // Handle new Campaigns only if the Active & Finalized cache have this ChannelId
+                // @TODO: Issue #23 Check if this makes sense again!
                 if !active.contains_key(&id) && !finalized.contains(&id) {
                     match campaign.status {
                         Status::Finalized(_) => {
@@ -209,10 +210,12 @@ async fn collect_all_campaigns(
     let mut campaigns = HashMap::new();
 
     for channel in get_all_channels(logger, sentry, validators).await {
-        // @TODO: We need to figure out a way to distinguish between Channels, check if they are the same and to remove incorrect ones
-        // For now just check if the channel is already inside the fetched channels and log if it is
+        /*
+            @TODO: Issue #23 Check ChannelId and the received Channel hash
+            We need to figure out a way to distinguish between Channels, check if they are the same and to remove incorrect ones
+            For now just check if the channel is already inside the fetched channels and log if it is
+        */
         if campaigns.contains_key(&channel.id) {
-            // @TODO: Issue #23 Check ChannelId and the received Channel hash
             info!(
                 logger,
                 "Skipping Campaign ({:?}) because it's already fetched from another Validator",
@@ -288,8 +291,6 @@ mod test {
         Mock, MockServer, ResponseTemplate,
     };
 
-    // @TODO: Issue #23 Remove after writing test and using the function
-    #[allow(dead_code)]
     fn setup_cache(
         active: HashMap<ChannelId, Campaign>,
         finalized: HashSet<ChannelId>,
@@ -337,6 +338,11 @@ mod test {
         let leader_id = channel.spec.validators.leader().id;
         let follower_id = channel.spec.validators.follower().id;
 
+        let expected_balances: BalancesMap =
+            vec![(leader_id, 10.into()), (follower_id, 100.into())]
+                .into_iter()
+                .collect();
+
         let mut config = DEVELOPMENT.clone();
         config.validators = vec![leader_url, follower_url].into_iter().collect();
 
@@ -344,9 +350,20 @@ mod test {
             channels: vec![channel.clone()],
             total_pages: 1,
         };
+
+        let leader_new_state = NewStateValidatorMessage {
+            from: leader_id,
+            received: Utc::now(),
+            msg: MessageTypes::NewState(NewState {
+                signature: String::from("0x0"),
+                state_root: String::from("0x0"),
+                balances: expected_balances.clone(),
+            }),
+        };
+
         let leader_last_approved = LastApprovedResponse {
             last_approved: Some(LastApproved {
-                new_state: Some(get_new_state_msg()),
+                new_state: Some(leader_new_state),
                 approve_state: None,
             }),
             heartbeats: Some(vec![
@@ -423,11 +440,10 @@ mod test {
         let active_cache = cache.active.read().await;
         let active_campaign = active_cache
             .get(&channel.id)
-            .expect("This Campaign should be active");
+            .expect("This Campaign should exist and should be active");
 
         assert_eq!(Status::Waiting, active_campaign.status);
-        // TODO: Issue #23 Add a BalancesMap and expect it!
-        assert_eq!(BalancesMap::default(), active_campaign.balances);
+        assert_eq!(expected_balances, active_campaign.balances);
     }
 
     #[tokio::test]
@@ -456,7 +472,6 @@ mod test {
             vec![(leader_id, 10.into()), (follower_id, 100.into())]
                 .into_iter()
                 .collect();
-        let expected_status = Status::Initializing;
 
         let leader_new_state = NewStateValidatorMessage {
             from: leader_id,
@@ -473,14 +488,13 @@ mod test {
                 new_state: Some(leader_new_state),
                 approve_state: None,
             }),
-            // No Heartbeats means that we are still Status::Initializing
             heartbeats: Some(vec![
                 get_heartbeat_msg(Duration::zero(), leader_id),
                 get_heartbeat_msg(Duration::zero(), follower_id),
             ]),
         };
 
-        // No No ApproveState & Heartbeats means that we are still Status::Initializing
+        // No ApproveState & No Heartbeats means that we are still Status::Initializing
         let follower_last_approved = LastApprovedResponse {
             last_approved: Some(LastApproved {
                 new_state: None,
@@ -519,7 +533,7 @@ mod test {
             .expect("Campaign should be in Active Cache");
 
         assert_eq!(expected_balances, cache_channel.balances);
-        assert_eq!(expected_status, cache_channel.status);
+        assert_eq!(Status::Initializing, cache_channel.status);
 
         assert!(cache.finalized.read().await.is_empty());
     }
@@ -581,4 +595,6 @@ mod test {
         assert_eq!(1, finalized.len());
         assert_eq!(Some(&channel_id), finalized.get(&channel_id));
     }
+
+    // @TODO: Issue #23 Test `Cache::update` & `Cache::fetch_new_campaigns`
 }

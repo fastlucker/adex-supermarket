@@ -46,11 +46,12 @@ impl SentryApi {
         validator: &Url,
         page: u64,
     ) -> Result<ChannelListResponse, reqwest::Error> {
+        // @TODO: Use `ChannelListQuery` when it's moved to `primitives` (see https://github.com/AdExNetwork/adex-validator-stack-rust/issues/303)
         let url = format!(
             "{}/channel/list?page={}&validUntil={}",
             validator,
             page,
-            Utc::now()
+            Utc::now().timestamp()
         );
 
         self.client
