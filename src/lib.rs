@@ -1,6 +1,6 @@
 #![deny(clippy::all)]
 #![deny(rust_2018_idioms)]
-use cache::Cache;
+pub use cache::Cache;
 use hyper::{client::HttpConnector, Body, Client, Method, Request, Response, Server};
 use std::fmt;
 use std::net::SocketAddr;
@@ -9,12 +9,12 @@ use std::sync::Arc;
 use http::{StatusCode, Uri};
 use slog::{error, info, Logger};
 
-mod cache;
+pub mod cache;
 pub mod config;
-mod market;
-mod sentry_api;
-// @TODO: mod status; This is suppressing the warnings
+pub mod market;
+pub mod sentry_api;
 pub mod status;
+pub mod util;
 
 use market::MarketApi;
 
@@ -77,7 +77,7 @@ pub async fn serve(
     let client = Client::new();
     let market = Arc::new(MarketApi::new(market_url, logger.clone())?);
 
-    let cache = spawn_fetch_campaigns(market.clone(), logger.clone(), config).await?;
+    let cache = spawn_fetch_campaigns(logger.clone(), config).await?;
 
     // And a MakeService to handle each connection...
     let make_service = make_service_fn(|_| {
@@ -197,16 +197,12 @@ async fn handle(
     }
 }
 
-async fn spawn_fetch_campaigns(
-    market: Arc<MarketApi>,
-    logger: Logger,
-    config: Config,
-) -> Result<Cache, reqwest::Error> {
-    let cache = Cache::initialize(market, logger.clone(), config.clone()).await?;
+async fn spawn_fetch_campaigns(logger: Logger, config: Config) -> Result<Cache, reqwest::Error> {
     info!(
         &logger,
-        "Campaigns have been fetched from the Market & Cache is now initialized..."
+        "Initialize Cache"; "validators" => format_args!("{:?}", &config.validators)
     );
+    let cache = Cache::initialize(logger.clone(), config.clone()).await?;
 
     let cache_spawn = cache.clone();
     // Every few minutes, we will get the non-finalized from the market,
@@ -240,14 +236,13 @@ async fn spawn_fetch_campaigns(
                             "Fetching new Campaigns timed out";
                             "allowed secs" => timeout_duration.as_secs()
                         ),
-                        Ok(Err(e)) => error!(&logger, "{}", e),
-                        _ => info!(&logger, "New Campaigns fetched from Market!"),
+                        _ => info!(&logger, "New Campaigns fetched from Validators!"),
                     }
                 }
                 TimeFor::Update(_) => {
                     let timeout_duration = config.timeouts.cache_update_campaign_statuses;
 
-                    match timeout(timeout_duration, cache_spawn.update_campaigns()).await {
+                    match timeout(timeout_duration, cache_spawn.fetch_campaign_updates()).await {
                         Ok(_) => info!(&logger, "Campaigns statuses updated from Validators!"),
                         Err(_elapsed) => error!(
                                 &logger,

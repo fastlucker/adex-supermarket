@@ -1,9 +1,14 @@
+use chrono::Utc;
+use futures::future::{try_join_all, TryFutureExt};
 use primitives::{
-    sentry::{LastApprovedResponse, ValidatorMessage, ValidatorMessageResponse},
-    ValidatorDesc,
+    sentry::{
+        ChannelListResponse, LastApprovedResponse, ValidatorMessage, ValidatorMessageResponse,
+    },
+    Channel, ValidatorDesc,
 };
-use reqwest::{Client, Error};
+use reqwest::{Client, Error, Response};
 use std::time::Duration;
+use url::Url;
 
 #[derive(Debug, Clone)]
 pub struct SentryApi {
@@ -16,6 +21,44 @@ impl SentryApi {
         let client = Client::builder().timeout(request_timeout).build()?;
 
         Ok(Self { client })
+    }
+
+    pub async fn get_validator_channels(&self, validator: &Url) -> Result<Vec<Channel>, Error> {
+        let first_page = self.fetch_page(&validator, 0).await?;
+
+        if first_page.total_pages < 2 {
+            Ok(first_page.channels)
+        } else {
+            let all: Vec<ChannelListResponse> =
+                try_join_all((1..first_page.total_pages).map(|i| self.fetch_page(&validator, i)))
+                    .await?;
+
+            let result_all: Vec<Channel> = std::iter::once(first_page)
+                .chain(all.into_iter())
+                .flat_map(|ch| ch.channels.into_iter())
+                .collect();
+            Ok(result_all)
+        }
+    }
+
+    async fn fetch_page(
+        &self,
+        validator: &Url,
+        page: u64,
+    ) -> Result<ChannelListResponse, reqwest::Error> {
+        // @TODO: Use `ChannelListQuery` when it's moved to `primitives` (see https://github.com/AdExNetwork/adex-validator-stack-rust/issues/303)
+        let url = format!(
+            "{}/channel/list?page={}&validUntil={}",
+            validator,
+            page,
+            Utc::now().timestamp()
+        );
+
+        self.client
+            .get(&url)
+            .send()
+            .and_then(|res: Response| res.json::<ChannelListResponse>())
+            .await
     }
 
     pub async fn get_last_approved(

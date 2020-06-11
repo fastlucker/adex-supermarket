@@ -7,11 +7,11 @@ use serde::Deserialize;
 use slog::{info, Logger};
 use std::fmt;
 
-pub(crate) type MarketUrl = String;
+pub type MarketUrl = String;
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Clone)]
-pub(crate) struct MarketApi {
+pub struct MarketApi {
     pub market_url: MarketUrl,
     client: Client,
     logger: Logger,
@@ -153,7 +153,7 @@ impl MarketApi {
 
 /// Should we query All or only certain statuses
 #[derive(Debug)]
-pub(crate) enum Statuses<'a> {
+pub enum Statuses<'a> {
     All,
     Only(&'a [StatusType]),
 }

@@ -1,7 +1,6 @@
 use crate::sentry_api::SentryApi;
 use chrono::{DateTime, Duration, Utc};
 use primitives::{
-    market::Status as MarketStatus,
     sentry::{HeartbeatValidatorMessage, LastApprovedResponse, NewStateValidatorMessage},
     validator::{ApproveState, MessageTypes},
     BalancesMap, BigNum, Channel, ValidatorId,
@@ -10,16 +9,16 @@ use reqwest::Error;
 
 #[cfg(test)]
 #[path = "status_test.rs"]
-mod test;
+pub mod test;
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub enum Status {
     // Active and Ready
     Active,
     Pending,
     Initializing,
     Waiting,
-    Finalized(Finalized, BalancesMap),
+    Finalized(Finalized),
     Unsound {
         disconnected: bool,
         offline: bool,
@@ -28,46 +27,7 @@ pub enum Status {
     },
 }
 
-impl From<&MarketStatus> for Status {
-    fn from(market_status: &MarketStatus) -> Self {
-        use primitives::market::StatusType::*;
-        match market_status.status_type {
-            Active | Ready => Self::Active,
-            Pending => Self::Pending,
-            Initializing => Self::Initializing,
-            Waiting => Self::Waiting,
-            Offline => Self::Unsound {
-                disconnected: false,
-                offline: true,
-                rejected_state: false,
-                unhealthy: false,
-            },
-            Disconnected => Self::Unsound {
-                disconnected: true,
-                offline: false,
-                rejected_state: false,
-                unhealthy: false,
-            },
-            Unhealthy => Self::Unsound {
-                disconnected: false,
-                offline: false,
-                rejected_state: false,
-                unhealthy: true,
-            },
-            Invalid => Self::Unsound {
-                disconnected: false,
-                offline: false,
-                rejected_state: true,
-                unhealthy: false,
-            },
-            Expired => Self::Finalized(Finalized::Expired, market_status.balances.clone()),
-            Exhausted => Self::Finalized(Finalized::Exhausted, market_status.balances.clone()),
-            Withdraw => Self::Finalized(Finalized::Withdraw, market_status.balances.clone()),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Finalized {
     Expired,
     Exhausted,
@@ -86,6 +46,18 @@ impl Messages {
             .last_approved
             .as_ref()
             .and_then(|last_approved| last_approved.new_state.as_ref())
+    }
+
+    fn get_leader_new_state_balances(&self) -> BalancesMap {
+        self.leader
+            .last_approved
+            .as_ref()
+            .and_then(|last_approved| last_approved.new_state.as_ref())
+            .and_then(|new_state| match &new_state.msg {
+                MessageTypes::NewState(new_state) => Some(new_state.balances.clone()),
+                _ => None,
+            })
+            .unwrap_or_default()
     }
 
     fn get_follower_approve_state_msg(&self) -> Option<&ApproveState> {
@@ -156,11 +128,7 @@ impl Messages {
     }
 
     fn has_leader_new_state(&self) -> bool {
-        self.leader
-            .last_approved
-            .as_ref()
-            .map(|last_approved| last_approved.new_state.is_some())
-            .unwrap_or(false)
+        self.get_leader_new_state().is_some()
     }
 
     /// `from`: If `None` it will just check for a recent Heartbeat
@@ -263,10 +231,13 @@ pub async fn is_finalized(sentry: &SentryApi, channel: &Channel) -> Result<IsFin
     })
 }
 
-pub async fn get_status(sentry: &SentryApi, channel: &Channel) -> Result<Status, Error> {
+pub async fn get_status(
+    sentry: &SentryApi,
+    channel: &Channel,
+) -> Result<(Status, BalancesMap), Error> {
     // continue only if Campaign is not Finalized
     let leader_la = match is_finalized(sentry, channel).await? {
-        IsFinalized::Yes { reason, balances } => return Ok(Status::Finalized(reason, balances)),
+        IsFinalized::Yes { reason, balances } => return Ok((Status::Finalized(reason), balances)),
         IsFinalized::No { leader } => leader,
     };
 
@@ -282,7 +253,10 @@ pub async fn get_status(sentry: &SentryApi, channel: &Channel) -> Result<Status,
 
     // impl: isInitializing
     if is_initializing(&messages) {
-        return Ok(Status::Initializing);
+        return Ok((
+            Status::Initializing,
+            messages.get_leader_new_state_balances(),
+        ));
     }
 
     // impl: isOffline
@@ -298,19 +272,20 @@ pub async fn get_status(sentry: &SentryApi, channel: &Channel) -> Result<Status,
     let unhealthy = is_unhealthy(&messages);
 
     if disconnected || offline || rejected_state || unhealthy {
-        return Ok(Status::Unsound {
+        let status = Status::Unsound {
             disconnected,
             offline,
             rejected_state,
             unhealthy,
-        });
+        };
+        return Ok((status, messages.get_leader_new_state_balances()));
     }
 
     // isActive & isReady (we don't need distinguish between Active & Ready here)
     if is_active(&messages) && is_ready(&messages) {
-        Ok(Status::Active)
+        Ok((Status::Active, messages.get_leader_new_state_balances()))
     } else {
-        Ok(Status::Waiting)
+        Ok((Status::Waiting, messages.get_leader_new_state_balances()))
     }
 }
 

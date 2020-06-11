@@ -11,16 +11,17 @@ futures = { version = "0.3" }
 # Server
 tokio = { version = "0.2", features = ["macros", "rt-threaded", "sync"] }
 hyper = { version = "0.13", features = ["stream"] }
-http = "0.2.0"
+http = "0.2"
 
 reqwest = { version = "0.10", features = ["json"] }
 
-serde = { version = "^1.0", features = ['derive'] }
+serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
 
 # CLI
-clap = "2.33.0"
+clap = "2.33"
 toml = "0.5"
+url = { version = "2.1", features = ["serde"]}
 
 # Logging
 slog = { version = "2.5" }
@@ -30,4 +31,4 @@ slog-async = "2.5"
 lazy_static = "1.4"
 
 [dev-dependencies]
-wiremock = "0.2.0"
+wiremock = "0.2"
