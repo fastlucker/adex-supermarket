@@ -2,7 +2,8 @@ use chrono::Utc;
 use futures::future::{try_join_all, TryFutureExt};
 use primitives::{
     sentry::{
-        ChannelListResponse, LastApprovedResponse, ValidatorMessage, ValidatorMessageResponse,
+        channel_list::ChannelListQuery, ChannelListResponse, LastApprovedResponse,
+        ValidatorMessage, ValidatorMessageResponse,
     },
     Channel, ValidatorDesc,
 };
@@ -45,13 +46,18 @@ impl SentryApi {
         &self,
         validator: &Url,
         page: u64,
-    ) -> Result<ChannelListResponse, reqwest::Error> {
-        // @TODO: Use `ChannelListQuery` when it's moved to `primitives` (see https://github.com/AdExNetwork/adex-validator-stack-rust/issues/303)
-        let url = format!(
-            "{}/channel/list?page={}&validUntil={}",
-            validator,
+    ) -> Result<ChannelListResponse, Error> {
+        let query = ChannelListQuery {
             page,
-            Utc::now().timestamp()
+            valid_until_ge: Utc::now(),
+            creator: None,
+            validator: None,
+        };
+
+        let url = format!(
+            "{}/channel/list?{}",
+            validator,
+            serde_urlencoded::to_string(&query).expect("Should serialize")
         );
 
         self.client
