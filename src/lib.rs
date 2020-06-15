@@ -14,14 +14,16 @@ pub mod config;
 pub mod market;
 pub mod sentry_api;
 pub mod status;
+mod units_for_slot;
 pub mod util;
 
 use market::MarketApi;
+use units_for_slot::get_units_for_slot;
 
 pub use config::{Config, Timeouts};
 pub use sentry_api::SentryApi;
 
-static ROUTE_UNITS_FOR_SLOT: &str = "/units-for-slot/";
+pub(crate) static ROUTE_UNITS_FOR_SLOT: &str = "/units-for-slot/";
 
 #[derive(Debug)]
 pub enum Error {
@@ -117,53 +119,7 @@ async fn handle(
     let is_units_for_slot = req.uri().path().starts_with(ROUTE_UNITS_FOR_SLOT);
 
     match (is_units_for_slot, req.method()) {
-        (true, &Method::GET) => {
-            let ipfs = req.uri().path().trim_start_matches(ROUTE_UNITS_FOR_SLOT);
-
-            if ipfs.is_empty() {
-                Ok(not_found())
-            } else {
-                let ad_slot_result = market.fetch_slot(&ipfs).await?;
-
-                let ad_slot = match ad_slot_result {
-                    Some(ad_slot) => {
-                        info!(&logger, "Fetched AdSlot"; "AdSlot" => ipfs);
-
-                        ad_slot
-                    }
-                    None => {
-                        info!(
-                            &logger,
-                            "AdSlot ({}) not found in Market",
-                            ipfs;
-                            "AdSlot" => ipfs
-                        );
-                        return Ok(not_found());
-                    }
-                };
-
-                let units = market.fetch_units(&ad_slot).await?;
-
-                let units_ipfses: Vec<String> = units.iter().map(|au| au.ipfs.clone()).collect();
-
-                info!(&logger, "Fetched AdUnits for AdSlot"; "AdSlot" => ipfs, "AdUnits" => ?&units_ipfses);
-
-                // Applying targeting.
-                // Optional but should always be applied unless there is a `?noTargeting` query parameter provided.
-                // It should find matches between the unit targeting and the slot tags.
-                // More details on how to implement after the targeting overhaul
-                let _apply_targeting = req
-                    .uri()
-                    .query()
-                    .map(|q| !q.contains("noTargeting"))
-                    .unwrap_or(true);
-
-                // @TODO: Apply trageting!
-                // @TODO: https://github.com/AdExNetwork/adex-supermarket/issues/9
-
-                Ok(Response::new(Body::from("")))
-            }
-        }
+        (true, &Method::GET) => get_units_for_slot(&logger, market.clone(), req).await,
         (_, method) => {
             use http::uri::PathAndQuery;
 
@@ -188,7 +144,7 @@ async fn handle(
                 Err(err) => {
                     error!(&logger, "Proxying request to market failed"; "uri" => uri, "method" => %method, "error" => ?&err);
 
-                    service_unavaiable()
+                    service_unavailable()
                 }
             };
 
@@ -258,14 +214,14 @@ async fn spawn_fetch_campaigns(logger: Logger, config: Config) -> Result<Cache, 
     Ok(cache)
 }
 
-fn not_found() -> Response<Body> {
+pub(crate) fn not_found() -> Response<Body> {
     Response::builder()
         .status(StatusCode::NOT_FOUND)
         .body(Body::empty())
         .expect("Not Found response should be valid")
 }
 
-fn service_unavaiable() -> Response<Body> {
+pub(crate) fn service_unavailable() -> Response<Body> {
     Response::builder()
         .status(StatusCode::SERVICE_UNAVAILABLE)
         .body(Body::empty())

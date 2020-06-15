@@ -6,6 +6,7 @@ use reqwest::{Client, Error, StatusCode};
 use serde::Deserialize;
 use slog::{info, Logger};
 use std::fmt;
+use url::Url;
 
 pub type MarketUrl = String;
 pub type Result<T> = std::result::Result<T, Error>;
@@ -15,6 +16,15 @@ pub struct MarketApi {
     pub market_url: MarketUrl,
     client: Client,
     logger: Logger,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdSlotResponse {
+    pub slot: AdSlot,
+    pub accepted_referrers: Vec<Url>,
+    pub categories: Vec<String>,
+    pub alexa_rank: Option<f64>,
 }
 
 impl MarketApi {
@@ -38,19 +48,14 @@ impl MarketApi {
 
     /// ipfs: ipfs hash
     /// Handles the 404 case, returning a None, instead of Error
-    pub async fn fetch_slot(&self, ipfs: &str) -> Result<Option<AdSlot>> {
-        #[derive(Deserialize)]
-        struct AdSlotResponse {
-            slot: AdSlot,
-        }
+    pub async fn fetch_slot(&self, ipfs: &str) -> Result<Option<AdSlotResponse>> {
         let url = format!("{}/slots/{}", self.market_url, ipfs);
         let response = self.client.get(&url).send().await?;
 
         if let StatusCode::NOT_FOUND = response.status() {
             Ok(None)
         } else {
-            let ad_slot_response = response.json::<AdSlotResponse>().await?;
-            Ok(Some(ad_slot_response.slot))
+            response.json::<AdSlotResponse>().await.map(Some)
         }
     }
 
