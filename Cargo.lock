@@ -1349,7 +1349,7 @@ checksum = "74490b50b9fbe561ac330df47c08f3f33073d2d00c150f719147d7c54522fa1b"
 [[package]]
 name = "primitives"
 version = "0.1.0"
-source = "git+https://github.com/AdExNetwork/adex-validator-stack-rust?branch=supermarket-changes#c91803492aa7bdce1fd47ca4cb33e9d1e16ba217"
+source = "git+https://github.com/AdExNetwork/adex-validator-stack-rust?branch=supermarket-changes#4cb28bf4a735e9adb8860b156a862d38d73f24c5"
 dependencies = [
  "chrono",
  "fake",
@@ -1935,6 +1935,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "slog",
  "slog-async",
  "slog-term",
