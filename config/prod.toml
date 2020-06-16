@@ -13,7 +13,7 @@ limited_identity_earnings_limit = '100000000000000000000'
 
 # The maximum number of campaigns a publisher can earn from
 # This will limit the returned Campaigns to the set number
-maximum_publisher_earning_campaigns = 50
+max_channels_earning_from = 25
 
 [timeouts]
 cache_update_campaign_statuses = 40

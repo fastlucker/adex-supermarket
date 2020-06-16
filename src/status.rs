@@ -7,32 +7,12 @@ use primitives::{
 };
 use reqwest::Error;
 
+// Re-export the Status & Finalized enums
+pub use primitives::supermarket::{Status, Finalized};
+
 #[cfg(test)]
 #[path = "status_test.rs"]
 pub mod test;
-
-#[derive(Debug, Eq, PartialEq, Clone)]
-pub enum Status {
-    // Active and Ready
-    Active,
-    Pending,
-    Initializing,
-    Waiting,
-    Finalized(Finalized),
-    Unsound {
-        disconnected: bool,
-        offline: bool,
-        rejected_state: bool,
-        unhealthy: bool,
-    },
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum Finalized {
-    Expired,
-    Exhausted,
-    Withdraw,
-}
 
 struct Messages {
     leader: LastApprovedResponse,

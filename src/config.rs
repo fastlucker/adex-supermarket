@@ -52,7 +52,7 @@ impl Config {
 pub struct Limits {
     #[serde(default)]
     pub limited_identity_earnings_limit: Option<BigNum>,
-    pub maximum_publisher_earning_campaigns: u16,
+    pub max_channels_earning_from: u16,
 }
 
 #[derive(Deserialize, Debug, Clone)]

@@ -11,6 +11,9 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use url::Url;
 
+// Re-export the Campaign
+pub use primitives::supermarket::Campaign;
+
 type Cached<T> = Arc<RwLock<T>>;
 
 pub type ActiveCache = HashMap<ChannelId, Campaign>;
@@ -30,23 +33,6 @@ pub struct Cache {
     validators: HashSet<Url>,
     logger: Logger,
     sentry: SentryApi,
-}
-
-#[derive(Debug, Clone)]
-pub struct Campaign {
-    channel: Channel,
-    status: Status,
-    balances: BalancesMap,
-}
-
-impl Campaign {
-    pub fn new(channel: Channel, status: Status, balances: BalancesMap) -> Self {
-        Self {
-            channel,
-            status,
-            balances,
-        }
-    }
 }
 
 impl Cache {
