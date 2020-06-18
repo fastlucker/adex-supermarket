@@ -31,7 +31,7 @@ slog-term = "2.5"
 slog-async = "2.5"
 # Other
 lazy_static = "1.4"
-uaparser = "0.4"
+woothee = "^0.11"
 
 [dev-dependencies]
 wiremock = "0.2"

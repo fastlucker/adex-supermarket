@@ -1,10 +1,10 @@
 use crate::{not_found, Error, MarketApi, ROUTE_UNITS_FOR_SLOT};
 use chrono::Utc;
-use hyper::{Body, Request, Response};
+use hyper::{Body, Request, Response, header::USER_AGENT};
 use primitives::targeting::{Global, Input};
 use slog::{error, info, Logger};
 use std::sync::Arc;
-
+use woothee::parse::Parser;
 
 pub async fn get_units_for_slot(
     logger: &Logger,
@@ -41,31 +41,30 @@ pub async fn get_units_for_slot(
         info!(&logger, "Fetched AdUnits for AdSlot"; "AdSlot" => ipfs, "AdUnits" => ?&units_ipfses);
 
         // @TODO: https://github.com/AdExNetwork/adex-supermarket/issues/9
+
+        // For each adUnits apply input
+        let parsed = Parser::new().parse(req.headers().get(USER_AGENT).unwrap_or_default());
+        let user_agent_os = parsed.as_ref().map(|p| p.os.to_string()).unwrap_or_default();
+        let user_agent_browser_family = parsed.as_ref().map(|p| p.browser_type.to_string()).unwrap_or_default();
+
         // let input = Input {
         //     ad_view: None,
         //     global: Global {
         //         ad_slot_id: ad_slot_response.slot.id,
-        //         ad_unit_id: ,
-        //         ad_unit_type: (),
-        //         publisher_id: (),
-        //         advertiser_id: (),
-        //         country: (),
+        //         ad_slot_type: ad_slot_response.slot.ad_type,
+        //         publisher_id: ad_slot_response.slot.owner,
+        //         country: req.headers().get("cf-ipcountry"),
         //         event_type: "IMPRESSION".to_string(),
-        //         campiagn_id: (),
-        //         campaign_total_spent: (),
-        //         campaign_seconds_active: (),
-        //         campaign_seconds_duration: (),
-        //         campaign_budget: (),
-        //         event_min_price: (),
-        //         event_max_price: (),
-        //         publisher_earned_from_campaign: (),
         //         seconds_since_epoch: Utc::now().timestamp(),
-        //         user_agent_os: (),
-        //         user_agent_browser_family: (),
-
+        //         user_agent_os,
+        //         user_agent_browser_family,
+        //         ad_unit: Some(ad_unit),
+        //         channel: DUMMY_CHANNEL.clone(),
+        //         status: Some(Status::Initializing),
+        //         balances: Some(input_balances),
         //     },
         //     ad_slot: None,
-        // }
+        // };
         // const ua = UAParser(req.headers['user-agent'])
         // const targetingInputBase = {
         //     adSlotId: id,

@@ -42,11 +42,7 @@ impl SentryApi {
         }
     }
 
-    async fn fetch_page(
-        &self,
-        validator: &Url,
-        page: u64,
-    ) -> Result<ChannelListResponse, Error> {
+    async fn fetch_page(&self, validator: &Url, page: u64) -> Result<ChannelListResponse, Error> {
         let query = ChannelListQuery {
             page,
             valid_until_ge: Utc::now(),

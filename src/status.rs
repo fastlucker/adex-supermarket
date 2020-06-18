@@ -8,7 +8,7 @@ use primitives::{
 use reqwest::Error;
 
 // Re-export the Status & Finalized enums
-pub use primitives::supermarket::{Status, Finalized};
+pub use primitives::supermarket::{Finalized, Status};
 
 #[cfg(test)]
 #[path = "status_test.rs"]
