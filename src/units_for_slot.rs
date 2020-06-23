@@ -1,10 +1,14 @@
 use crate::{not_found, Error, MarketApi, ROUTE_UNITS_FOR_SLOT};
 use chrono::Utc;
-use hyper::{Body, Request, Response, header::USER_AGENT};
-use primitives::targeting::{Global, Input};
-use slog::{error, info, Logger};
+use hyper::{header::USER_AGENT, Body, Request, Response};
+use primitives::{
+    targeting::{AdSlot, Global, Input},
+    util::tests::prep_db::DUMMY_CHANNEL,
+};
+use slog::{info, Logger};
 use std::sync::Arc;
-use woothee::parse::Parser;
+use url::Url;
+use woothee::parser::Parser;
 
 pub async fn get_units_for_slot(
     logger: &Logger,
@@ -43,10 +47,27 @@ pub async fn get_units_for_slot(
         // @TODO: https://github.com/AdExNetwork/adex-supermarket/issues/9
 
         // For each adUnits apply input
-        let parsed = Parser::new().parse(req.headers().get(USER_AGENT).unwrap_or_default());
-        let user_agent_os = parsed.as_ref().map(|p| p.os.to_string()).unwrap_or_default();
-        let user_agent_browser_family = parsed.as_ref().map(|p| p.browser_type.to_string()).unwrap_or_default();
+        let parsed = Parser::new().parse(req.headers().get(USER_AGENT).unwrap().to_str().unwrap());
+        let user_agent_os = Some(
+            parsed
+                .as_ref()
+                .map(|p| p.os.to_string())
+                .unwrap_or_default(),
+        );
+        let user_agent_browser_family = Some(
+            parsed
+                .as_ref()
+                .map(|p| p.browser_type.to_string())
+                .unwrap_or_default(),
+        );
+        let country = Some(String::from(
+            req.headers().get("cf-ipcountry").unwrap().to_str().unwrap(),
+        ));
 
+        let hostname = Url::parse(&ad_slot_response.slot.website.unwrap())?
+            .host()
+            .unwrap()
+            .to_string();
         // let input = Input {
         //     ad_view: None,
         //     global: Global {
@@ -65,22 +86,28 @@ pub async fn get_units_for_slot(
         //     },
         //     ad_slot: None,
         // };
-        // const ua = UAParser(req.headers['user-agent'])
-        // const targetingInputBase = {
-        //     adSlotId: id,
-        //     adSlotType: adSlot.type,
-        //     publisherId,
-        //     country: req.headers['cf-ipcountry'],
-        //     eventType: 'IMPRESSION',
-        //     secondsSinceEpoch: Math.floor(Date.now() / 1000),
-        //     userAgentOS: ua.os.name,
-        //     userAgentBrowserFamily: ua.browser.name,
-        //     'adSlot.categories': categories,
-        //     'adSlot.hostname': adSlot.website
-        //         ? url.parse(adSlot.website).hostname
-        //         : undefined,
-        //     'adSlot.alexaRank': typeof alexaRank === 'number' ? alexaRank : undefined,
-        // }
+        let targeting_input_base = Input {
+            ad_view: None,
+            global: Global {
+                ad_slot_id: ad_slot_response.slot.ipfs,
+                ad_slot_type: ad_slot_response.slot.ad_type,
+                publisher_id: ad_slot_response.slot.owner,
+                country,
+                event_type: "IMPRESSION".to_string(),
+                seconds_since_epoch: Utc::now().timestamp() as u64,
+                user_agent_os,
+                user_agent_browser_family,
+                ad_unit: Default::default(),
+                balances: Default::default(),
+                channel: DUMMY_CHANNEL.clone(),
+                status: Default::default(),
+            },
+            ad_slot: Some(AdSlot {
+                categories: ad_slot_response.categories,
+                hostname,
+                alexa_rank: ad_slot_response.alexa_rank,
+            }),
+        };
 
         Ok(Response::new(Body::from("")))
     }

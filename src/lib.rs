@@ -30,6 +30,7 @@ pub enum Error {
     Hyper(hyper::Error),
     Http(http::Error),
     Reqwest(reqwest::Error),
+    Url(url::ParseError),
 }
 
 impl fmt::Display for Error {
@@ -38,6 +39,7 @@ impl fmt::Display for Error {
             Error::Hyper(e) => e.fmt(f),
             Error::Http(e) => e.fmt(f),
             Error::Reqwest(e) => e.fmt(f),
+            Error::Url(e) => e.fmt(f),
         }
     }
 }
@@ -65,6 +67,12 @@ impl From<reqwest::Error> for Error {
 impl From<http::uri::InvalidUri> for Error {
     fn from(e: http::uri::InvalidUri) -> Error {
         Error::Http(e.into())
+    }
+}
+
+impl From<url::ParseError> for Error {
+    fn from(e: url::ParseError) -> Error {
+        Error::Url(e)
     }
 }
 
