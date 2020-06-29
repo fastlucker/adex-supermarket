@@ -23,7 +23,6 @@ serde_urlencoded = "0.6"
 # CLI
 clap = "2.33"
 toml = "0.5"
-url = { version = "2.1", features = ["serde"]}
 
 # Logging
 slog = { version = "2.5" }
@@ -31,6 +30,8 @@ slog-term = "2.5"
 slog-async = "2.5"
 # Other
 lazy_static = "1.4"
+url = { version = "2.1", features = ["serde"]}
+# UA parsing
 woothee = "^0.11"
 
 [dev-dependencies]
