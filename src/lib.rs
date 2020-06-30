@@ -131,7 +131,9 @@ async fn handle(
     let is_units_for_slot = req.uri().path().starts_with(ROUTE_UNITS_FOR_SLOT);
 
     match (is_units_for_slot, req.method()) {
-        (true, &Method::GET) => get_units_for_slot(&logger, market.clone(), &config, &cache, req).await,
+        (true, &Method::GET) => {
+            get_units_for_slot(&logger, market.clone(), &config, &cache, req).await
+        }
         (_, method) => {
             use http::uri::PathAndQuery;
 

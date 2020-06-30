@@ -10,6 +10,7 @@ use primitives::{
     util::tests::prep_db::DUMMY_CHANNEL,
     ValidatorId,
 };
+use response::UnitsWithPrice;
 use slog::{info, Logger};
 use std::convert::TryFrom;
 use std::sync::Arc;
@@ -150,7 +151,8 @@ async fn apply_targeting(
     hostname: String,
 ) {
     let publisher_id = ad_slot_response.slot.owner;
-    campaigns
+
+    let _campaigns: Vec<_> = campaigns
         .into_iter()
         .filter_map::<response::Campaign, _>(|campaign| {
             let ad_units = campaign
@@ -162,16 +164,16 @@ async fn apply_targeting(
                 .cloned()
                 .collect::<Vec<_>>();
 
-            if ad_units.len() == 0 {
+            if ad_units.is_empty() {
                 None
             } else {
-                let targeting_rules = if campaign.channel.targeting_rules.len() > 0 {
+                let targeting_rules = if !campaign.channel.targeting_rules.is_empty() {
                     campaign.channel.targeting_rules.clone()
                 } else {
                     campaign.channel.spec.targeting_rules.clone()
                 };
 
-                let matching_units: Vec<(response::AdUnit, Pricing)> = ad_units
+                let matching_units = ad_units
                     .into_iter()
                     .filter_map(|ad_unit| {
                         let input = Input {
@@ -211,7 +213,7 @@ async fn apply_targeting(
 
                         eval_multiple(&targeting_rules, &input, &mut output);
 
-                        if output.show == false {
+                        if !output.show {
                             return None;
                         }
 
@@ -233,14 +235,22 @@ async fn apply_targeting(
 
                         let ad_unit = response::AdUnit::from(ad_unit);
 
-                        Some((ad_unit, price))
+                        Some(UnitsWithPrice {
+                            unit: ad_unit,
+                            price,
+                        })
                     })
                     .collect();
 
                 // TODO: The rest of the filtration and mapping here!
-                None
+                Some(response::Campaign {
+                    channel: campaign.channel.into(),
+                    targeting_rules,
+                    units_with_price: matching_units,
+                })
             }
-        });
+        })
+        .collect();
 }
 
 // @TODO: Logging & move to Targeting when ready
@@ -252,7 +262,7 @@ fn eval_multiple(rules: &[Rule], input: &Input, output: &mut Output) {
             Err(EvalError::TypeError) => todo!("OnTypeErr logging"),
         }
 
-        if output.show == false {
+        if !output.show {
             return;
         }
     }
@@ -263,17 +273,47 @@ mod response {
         serde::{ts_milliseconds, ts_milliseconds_option},
         DateTime, Utc,
     };
-    use primitives::{BigNum, ChannelId, SpecValidators, ValidatorId};
+    use primitives::{
+        channel::Pricing, targeting::Rule, BigNum, ChannelId, SpecValidators, ValidatorId,
+    };
     use serde::Serialize;
 
     #[derive(Debug, Serialize)]
     #[serde(rename_all = "camelCase")]
+    pub(super) struct UnitsWithPrice {
+        pub unit: AdUnit,
+        pub price: Pricing,
+    }
+
+    #[derive(Debug, Serialize)]
+    #[serde(rename_all = "camelCase")]
     pub(super) struct Campaign {
+        #[serde(flatten)]
+        pub channel: Channel,
+        pub targeting_rules: Vec<Rule>,
+        pub units_with_price: Vec<UnitsWithPrice>,
+    }
+
+    #[derive(Debug, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub(super) struct Channel {
         pub id: ChannelId,
         pub creator: ValidatorId,
         pub deposit_asset: String,
         pub deposit_amount: BigNum,
         pub spec: Spec,
+    }
+
+    impl From<primitives::Channel> for Channel {
+        fn from(channel: primitives::Channel) -> Self {
+            Self {
+                id: channel.id,
+                creator: channel.creator,
+                deposit_asset: channel.deposit_asset,
+                deposit_amount: channel.deposit_amount,
+                spec: channel.spec.into(),
+            }
+        }
     }
 
     #[derive(Debug, Serialize)]
@@ -292,6 +332,19 @@ mod response {
         pub validators: SpecValidators,
     }
 
+    impl From<primitives::ChannelSpec> for Spec {
+        fn from(channel_spec: primitives::ChannelSpec) -> Self {
+            Self {
+                withdraw_period_start: channel_spec.withdraw_period_start,
+                active_from: channel_spec.active_from,
+                created: channel_spec.created,
+                validators: channel_spec.validators,
+            }
+        }
+    }
+
+    #[derive(Debug, Serialize)]
+    #[serde(rename_all = "camelCase")]
     pub(super) struct AdUnit {
         /// Same as `ipfs`
         pub id: String,
