@@ -1307,7 +1307,7 @@ checksum = "74490b50b9fbe561ac330df47c08f3f33073d2d00c150f719147d7c54522fa1b"
 [[package]]
 name = "primitives"
 version = "0.1.0"
-source = "git+https://github.com/AdExNetwork/adex-validator-stack-rust?branch=supermarket-changes#5ccc39521fb141ba902955766d9f6057e57147a9"
+source = "git+https://github.com/AdExNetwork/adex-validator-stack-rust?branch=supermarket-changes#7dc3598fe181e32755b2d4f4bf185cf8bb7fa612"
 dependencies = [
  "chrono",
  "fake",

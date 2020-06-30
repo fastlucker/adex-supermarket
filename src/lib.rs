@@ -76,6 +76,7 @@ impl From<url::ParseError> for Error {
     }
 }
 
+// TODO: Fix `clone()`s for `Config`
 pub async fn serve(
     addr: SocketAddr,
     logger: Logger,
@@ -87,7 +88,7 @@ pub async fn serve(
     let client = Client::new();
     let market = Arc::new(MarketApi::new(market_url, logger.clone())?);
 
-    let cache = spawn_fetch_campaigns(logger.clone(), config).await?;
+    let cache = spawn_fetch_campaigns(logger.clone(), config.clone()).await?;
 
     // And a MakeService to handle each connection...
     let make_service = make_service_fn(|_| {
@@ -95,13 +96,15 @@ pub async fn serve(
         let cache = cache.clone();
         let logger = logger.clone();
         let market = market.clone();
+        let config = config.clone();
         async move {
             Ok::<_, Error>(service_fn(move |req| {
                 let client = client.clone();
                 let cache = cache.clone();
                 let market = market.clone();
                 let logger = logger.clone();
-                async move { handle(req, cache, client, logger, market).await }
+                let config = config.clone();
+                async move { handle(req, config, cache, client, logger, market).await }
             }))
         }
     });
@@ -119,7 +122,8 @@ pub async fn serve(
 
 async fn handle(
     mut req: Request<Body>,
-    _cache: Cache,
+    config: Config,
+    cache: Cache,
     client: Client<HttpConnector>,
     logger: Logger,
     market: Arc<MarketApi>,
@@ -127,7 +131,7 @@ async fn handle(
     let is_units_for_slot = req.uri().path().starts_with(ROUTE_UNITS_FOR_SLOT);
 
     match (is_units_for_slot, req.method()) {
-        (true, &Method::GET) => get_units_for_slot(&logger, market.clone(), req).await,
+        (true, &Method::GET) => get_units_for_slot(&logger, market.clone(), &config, &cache, req).await,
         (_, method) => {
             use http::uri::PathAndQuery;
 
