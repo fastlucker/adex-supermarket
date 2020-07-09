@@ -5,7 +5,6 @@ use crate::{
 use chrono::Utc;
 use hyper::{header::USER_AGENT, Body, Request, Response};
 use primitives::{
-    channel::Pricing,
     targeting::{get_pricing_bounds, AdSlot, Error as EvalError, Global, Input, Output, Rule},
     util::tests::prep_db::DUMMY_CHANNEL,
     ValidatorId,
@@ -183,7 +182,7 @@ async fn apply_targeting(
                     campaign.channel.spec.targeting_rules.clone()
                 };
 
-                let matching_units = ad_units
+                let matching_units: Vec<UnitsWithPrice> = ad_units
                     .into_iter()
                     .filter_map(|ad_unit| {
                         let input = Input {
@@ -249,7 +248,7 @@ async fn apply_targeting(
                     })
                     .collect();
 
-                if (matching_units.is_empty()) {
+                if matching_units.is_empty() {
                     None
                 } else {
                     Some(response::Campaign {
@@ -284,7 +283,7 @@ mod response {
         DateTime, Utc,
     };
     use primitives::{
-        channel::Pricing, targeting::Rule, BigNum, ChannelId, SpecValidators, ValidatorId,
+        targeting::Rule, BigNum, ChannelId, SpecValidators, ValidatorId,
     };
     use serde::Serialize;
 
@@ -292,7 +291,7 @@ mod response {
     #[serde(rename_all = "camelCase")]
     pub(super) struct UnitsWithPrice {
         pub unit: AdUnit,
-        pub price: Pricing,
+        pub price: BigNum,
     }
 
     #[derive(Debug, Serialize)]
