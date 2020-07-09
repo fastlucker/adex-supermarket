@@ -20,6 +20,7 @@ lazy_static! {
 #[derive(Deserialize, Debug, Clone)]
 pub struct Config {
     pub validators: HashSet<Url>,
+    pub global_min_impression_price: BigNum,
     #[serde(deserialize_with = "seconds_to_std_duration")]
     /// (Now - Recency) determines if a DateTime is recent or not
     pub recency: Duration,

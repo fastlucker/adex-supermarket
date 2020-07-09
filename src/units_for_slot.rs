@@ -93,7 +93,16 @@ pub async fn get_units_for_slot(
         let campaigns_limited_by_earner =
             get_campaigns(cache, config, &deposit_assets, publisher_id).await;
 
-        apply_targeting(
+        // We return those in the result (which means AdView would have those) but we don't actually use them
+        // we do that in order to have the same variables as the validator, so that the `price` is the same
+        let targeting_input_ad_slot = Some(AdSlot {
+            categories: ad_slot_response.categories.clone(),
+            hostname: hostname.clone(),
+            alexa_rank: ad_slot_response.alexa_rank,
+        });
+
+        let campaigns = apply_targeting(
+            config,
             campaigns_limited_by_earner,
             ad_slot_response,
             country,
@@ -143,16 +152,17 @@ async fn get_campaigns(
 }
 
 async fn apply_targeting(
+    config: &Config,
     campaigns: Vec<Campaign>,
     ad_slot_response: AdSlotResponse,
     country: Option<String>,
     user_agent_os: Option<String>,
     user_agent_browser_family: Option<String>,
     hostname: String,
-) {
+) -> Vec<response::Campaign> {
     let publisher_id = ad_slot_response.slot.owner;
 
-    let _campaigns: Vec<_> = campaigns
+    campaigns
         .into_iter()
         .filter_map::<response::Campaign, _>(|campaign| {
             let ad_units = campaign
@@ -194,11 +204,7 @@ async fn apply_targeting(
                                 channel: DUMMY_CHANNEL.clone(),
                                 status: Default::default(),
                             },
-                            ad_slot: Some(AdSlot {
-                                categories: ad_slot_response.categories.clone(),
-                                hostname: hostname.clone(),
-                                alexa_rank: ad_slot_response.alexa_rank,
-                            }),
+                            ad_slot: None,
                         };
 
                         let pricing_bounds = get_pricing_bounds(&campaign.channel, "IMPRESSION");
@@ -217,21 +223,22 @@ async fn apply_targeting(
                             return None;
                         }
 
-                        let price = Pricing {
-                            min: pricing_bounds.min,
-                            max: match output.price.get("IMPRESSION") {
-                                Some(output_price) => output_price.min(&pricing_bounds.max).clone(),
-                                None => pricing_bounds.max,
-                            },
+                        let max_price = match output.price.get("IMPRESSION") {
+                            Some(output_price) => output_price.min(&pricing_bounds.max).clone(),
+                            None => pricing_bounds.max,
                         };
+                        let price = pricing_bounds.min.max(max_price);
 
-                        // @TODO: if (price.lt(GLOBAL_MIN_IMPRESSION_PRICE)) return null
+                        if price < config.global_min_impression_price {
+                            return None;
+                        }
 
-                        // @TODO:
-                        // // Execute the adSlot rules after we've taken the price since they're not
-                        // // allowed to change the price
-                        // if (!evaluateMultiple(input, output, adSlotRules, onTypeErr).show)
-                        // return null
+                        // Execute the adSlot rules after we've taken the price since they're not
+                        // allowed to change the price
+                        eval_multiple(&ad_slot_response.slot.rules, &input, &mut output);
+                        if !output.show {
+                            return None;
+                        }
 
                         let ad_unit = response::AdUnit::from(ad_unit);
 
@@ -242,15 +249,18 @@ async fn apply_targeting(
                     })
                     .collect();
 
-                // TODO: The rest of the filtration and mapping here!
-                Some(response::Campaign {
-                    channel: campaign.channel.into(),
-                    targeting_rules,
-                    units_with_price: matching_units,
-                })
+                if (matching_units.is_empty()) {
+                    None
+                } else {
+                    Some(response::Campaign {
+                        channel: campaign.channel.into(),
+                        targeting_rules,
+                        units_with_price: matching_units,
+                    })
+                }
             }
         })
-        .collect();
+        .collect()
 }
 
 // @TODO: Logging & move to Targeting when ready
