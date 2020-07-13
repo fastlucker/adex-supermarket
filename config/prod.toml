@@ -16,7 +16,7 @@ limited_identity_earnings_limit = '100000000000000000000'
 max_channels_earning_from = 25
 
 # 0.01 DAI per 1000 impressions
-global_min_impression_price = '10000000000000';
+global_min_impression_price = '10000000000000'
 
 [timeouts]
 cache_update_campaign_statuses = 40
