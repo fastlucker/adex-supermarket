@@ -1,6 +1,6 @@
 use crate::{
-    cache::Campaign, market::AdSlotResponse, not_found, status::Status, Cache, Config, Error,
-    MarketApi, ROUTE_UNITS_FOR_SLOT, service_unavailable,
+    cache::Campaign, market::AdSlotResponse, not_found, service_unavailable, status::Status, Cache,
+    Config, Error, MarketApi, ROUTE_UNITS_FOR_SLOT,
 };
 use chrono::Utc;
 use hyper::{header::USER_AGENT, Body, Request, Response};
@@ -10,12 +10,12 @@ use primitives::{
     ValidatorId,
 };
 use response::UnitsWithPrice;
-use slog::{info, error, Logger};
+use serde::Serialize;
+use slog::{error, info, Logger};
 use std::convert::TryFrom;
 use std::sync::Arc;
 use url::{form_urlencoded, Url};
 use woothee::parser::Parser;
-use serde::Serialize;
 
 pub async fn get_units_for_slot(
     logger: &Logger,
@@ -24,7 +24,6 @@ pub async fn get_units_for_slot(
     cache: &Cache,
     req: Request<Body>,
 ) -> Result<Response<Body>, Error> {
-
     let ipfs = req.uri().path().trim_start_matches(ROUTE_UNITS_FOR_SLOT);
     if ipfs.is_empty() {
         Ok(not_found())
@@ -305,9 +304,7 @@ mod response {
         serde::{ts_milliseconds, ts_milliseconds_option},
         DateTime, Utc,
     };
-    use primitives::{
-        targeting::Rule, BigNum, ChannelId, SpecValidators, ValidatorId,
-    };
+    use primitives::{targeting::Rule, BigNum, ChannelId, SpecValidators, ValidatorId};
     use serde::Serialize;
 
     #[derive(Debug, Serialize)]
