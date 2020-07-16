@@ -31,7 +31,7 @@ pub enum Error {
     Http(http::Error),
     Reqwest(reqwest::Error),
     Url(url::ParseError),
-    Serde(serde_json::error::Error)
+    Serde(serde_json::error::Error),
 }
 
 impl fmt::Display for Error {
@@ -112,7 +112,15 @@ pub async fn serve(
                 let market = market.clone();
                 let logger = logger.clone();
                 let config = config.clone();
-                async move { handle(req, config, cache, client, logger, market).await }
+                async move {
+                    match handle(req, config, cache, client, logger.clone(), market).await {
+                        Err(error) => {
+                            error!(&logger, "Error ocurred"; "error" => ?error);
+                            Err(error)
+                        }
+                        Ok(resp) => Ok(resp),
+                    }
+                }
             }))
         }
     });
@@ -176,10 +184,6 @@ async fn handle(
 }
 
 async fn spawn_fetch_campaigns(logger: Logger, config: Config) -> Result<Cache, reqwest::Error> {
-    info!(
-        &logger,
-        "Initialize Cache"; "validators" => format_args!("{:?}", &config.validators)
-    );
     let cache = Cache::initialize(logger.clone(), config.clone()).await?;
 
     let cache_spawn = cache.clone();

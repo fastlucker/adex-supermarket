@@ -50,14 +50,13 @@ impl MarketApi {
     /// Handles the 404 case, returning a None, instead of Error
     pub async fn fetch_slot(&self, ipfs: &str) -> Result<Option<AdSlotResponse>> {
         let url = format!("{}/slots/{}", self.market_url, ipfs);
+
         let response = self.client.get(&url).send().await?;
         if StatusCode::NOT_FOUND == response.status() {
             Ok(None)
         } else {
-            dbg!("{:?}", &response);
             let ad_slot_response = response.json::<AdSlotResponse>().await?;
 
-            dbg!("adslot response parsed");
             Ok(Some(ad_slot_response))
         }
     }

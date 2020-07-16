@@ -1,6 +1,6 @@
 use crate::{
     cache::Campaign, market::AdSlotResponse, not_found, status::Status, Cache, Config, Error,
-    MarketApi, ROUTE_UNITS_FOR_SLOT,
+    MarketApi, ROUTE_UNITS_FOR_SLOT, service_unavailable,
 };
 use chrono::Utc;
 use hyper::{header::USER_AGENT, Body, Request, Response};
@@ -10,7 +10,7 @@ use primitives::{
     ValidatorId,
 };
 use response::UnitsWithPrice;
-use slog::{info, Logger};
+use slog::{info, error, Logger};
 use std::convert::TryFrom;
 use std::sync::Arc;
 use url::{form_urlencoded, Url};
@@ -24,11 +24,21 @@ pub async fn get_units_for_slot(
     cache: &Cache,
     req: Request<Body>,
 ) -> Result<Response<Body>, Error> {
+
     let ipfs = req.uri().path().trim_start_matches(ROUTE_UNITS_FOR_SLOT);
     if ipfs.is_empty() {
         Ok(not_found())
     } else {
-        let ad_slot_response = match market.fetch_slot(&ipfs).await? {
+        let fetch_slot = match market.fetch_slot(&ipfs).await {
+            Ok(response) => response,
+            Err(err) => {
+                error!(&logger, "Error fetching AdSlot"; "AdSlot" => ipfs, "error" => %err);
+
+                return Ok(service_unavailable());
+            }
+        };
+
+        let ad_slot_response = match fetch_slot {
             Some(response) => {
                 info!(&logger, "Fetched AdSlot"; "AdSlot" => ipfs);
                 response
@@ -43,6 +53,7 @@ pub async fn get_units_for_slot(
                 return Ok(not_found());
             }
         };
+        // @TODO: Handle error with units retrieval
         let units = market.fetch_units(&ad_slot_response.slot).await?;
         let accepted_referrers = ad_slot_response.accepted_referrers.clone();
         let units_ipfses: Vec<&str> = units.iter().map(|au| au.ipfs.as_str()).collect();
@@ -89,6 +100,8 @@ pub async fn get_units_for_slot(
         let campaigns_limited_by_earner =
             get_campaigns(cache, config, &deposit_assets, publisher_id).await;
 
+        info!(&logger, "Fetched Cache campaigns"; "length" => campaigns_limited_by_earner.len(), "publisher_id" => %publisher_id);
+
         // We return those in the result (which means AdView would have those) but we don't actually use them
         // we do that in order to have the same variables as the validator, so that the `price` is the same
         let targeting_input_ad_slot = Some(AdSlot {
@@ -110,6 +123,7 @@ pub async fn get_units_for_slot(
 
         // @TODO: https://github.com/AdExNetwork/adex-supermarket/issues/9
         #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
         struct UnitsForSlotResponse {
             //? targeting_input_base: Vec<Rule>,
             accepted_referrers: Vec<Url>,

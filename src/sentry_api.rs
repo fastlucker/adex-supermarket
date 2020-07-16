@@ -51,7 +51,7 @@ impl SentryApi {
         };
 
         let url = format!(
-            "{}/channel/list?{}",
+            "{}channel/list?{}",
             validator,
             serde_urlencoded::to_string(&query).expect("Should serialize")
         );
@@ -78,7 +78,7 @@ impl SentryApi {
         validator: &ValidatorDesc,
     ) -> Result<Option<ValidatorMessage>, Error> {
         let url = format!(
-            "{}/validator-messages/{}/NewState?limit=1",
+            "{}validator-messages/{}/NewState?limit=1",
             validator.url, validator.id
         );
         let response = self.client.get(&url).send().await?;

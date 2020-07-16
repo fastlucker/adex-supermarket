@@ -35,8 +35,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config_path = cli.value_of("config");
 
     let config = Config::new(config_path, &environment)?;
-    // Construct our SocketAddr to listen on...
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
 
     let decorator = slog_term::TermDecorator::new().build();
     let drain = slog_term::FullFormat::new(decorator).build().fuse();
@@ -45,6 +43,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let logger = slog::Logger::root(drain, slog::o!());
 
     info!(&logger, "ENV: `{}`; {:#?}", environment, config);
+
+    // Construct our SocketAddr to listen on...
+    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    info!(&logger, "Started at: {}", &addr);
 
     Ok(serve(addr, logger, market_url, config).await?)
 }
