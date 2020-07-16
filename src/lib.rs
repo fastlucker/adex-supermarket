@@ -31,6 +31,7 @@ pub enum Error {
     Http(http::Error),
     Reqwest(reqwest::Error),
     Url(url::ParseError),
+    Serde(serde_json::error::Error)
 }
 
 impl fmt::Display for Error {
@@ -40,6 +41,7 @@ impl fmt::Display for Error {
             Error::Http(e) => e.fmt(f),
             Error::Reqwest(e) => e.fmt(f),
             Error::Url(e) => e.fmt(f),
+            Error::Serde(e) => e.fmt(f),
         }
     }
 }
@@ -73,6 +75,12 @@ impl From<http::uri::InvalidUri> for Error {
 impl From<url::ParseError> for Error {
     fn from(e: url::ParseError) -> Error {
         Error::Url(e)
+    }
+}
+
+impl From<serde_json::error::Error> for Error {
+    fn from(e: serde_json::error::Error) -> Error {
+        Error::Serde(e)
     }
 }
 

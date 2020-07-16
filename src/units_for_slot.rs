@@ -15,6 +15,7 @@ use std::convert::TryFrom;
 use std::sync::Arc;
 use url::{form_urlencoded, Url};
 use woothee::parser::Parser;
+use serde::Serialize;
 
 pub async fn get_units_for_slot(
     logger: &Logger,
@@ -24,14 +25,12 @@ pub async fn get_units_for_slot(
     req: Request<Body>,
 ) -> Result<Response<Body>, Error> {
     let ipfs = req.uri().path().trim_start_matches(ROUTE_UNITS_FOR_SLOT);
-
     if ipfs.is_empty() {
         Ok(not_found())
     } else {
         let ad_slot_response = match market.fetch_slot(&ipfs).await? {
             Some(response) => {
                 info!(&logger, "Fetched AdSlot"; "AdSlot" => ipfs);
-
                 response
             }
             None => {
@@ -41,15 +40,14 @@ pub async fn get_units_for_slot(
                     ipfs;
                     "AdSlot" => ipfs
                 );
-
                 return Ok(not_found());
             }
         };
-
         let units = market.fetch_units(&ad_slot_response.slot).await?;
-
+        let accepted_referrers = ad_slot_response.accepted_referrers.clone();
         let units_ipfses: Vec<&str> = units.iter().map(|au| au.ipfs.as_str()).collect();
-
+        // let fallback_unit_ipfs = &ad_slot_response.slot.fallback_unit?;
+        // let fallback_unit = market.fetch_unit(fallback_unit_ipfs).await?;
         info!(&logger, "Fetched AdUnits for AdSlot"; "AdSlot" => ipfs, "AdUnits" => ?&units_ipfses);
 
         let query = req.uri().query().unwrap_or_default();
@@ -64,7 +62,6 @@ pub async fn get_units_for_slot(
                 }
             })
             .collect();
-
         // For each adUnits apply input
         let ua_parser = Parser::new();
         let user_agent = req
@@ -112,8 +109,20 @@ pub async fn get_units_for_slot(
         .await;
 
         // @TODO: https://github.com/AdExNetwork/adex-supermarket/issues/9
+        #[derive(Serialize)]
+        struct UnitsForSlotResponse {
+            //? targeting_input_base: Vec<Rule>,
+            accepted_referrers: Vec<Url>,
+            // fallback_unit: AdUnit,
+            campaigns: Vec<response::Campaign>,
+        }
 
-        Ok(Response::new(Body::from("")))
+        let response = UnitsForSlotResponse {
+            accepted_referrers,
+            campaigns,
+        };
+
+        Ok(Response::new(Body::from(serde_json::to_string(&response)?)))
     }
 }
 
@@ -228,7 +237,7 @@ async fn apply_targeting(
                         };
                         let price = pricing_bounds.min.max(max_price);
 
-                        if price < config.global_min_impression_price {
+                        if price < config.limits.global_min_impression_price {
                             return None;
                         }
 

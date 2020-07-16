@@ -51,12 +51,22 @@ impl MarketApi {
     pub async fn fetch_slot(&self, ipfs: &str) -> Result<Option<AdSlotResponse>> {
         let url = format!("{}/slots/{}", self.market_url, ipfs);
         let response = self.client.get(&url).send().await?;
-
-        if let StatusCode::NOT_FOUND = response.status() {
+        if StatusCode::NOT_FOUND == response.status() {
             Ok(None)
         } else {
-            response.json::<AdSlotResponse>().await.map(Some)
+            dbg!("{:?}", &response);
+            let ad_slot_response = response.json::<AdSlotResponse>().await?;
+
+            dbg!("adslot response parsed");
+            Ok(Some(ad_slot_response))
         }
+    }
+
+    pub async fn fetch_unit(&self, ipfs: &str) -> Result<AdUnit> {
+        let url = format!("{}/units/{}", self.market_url, ipfs);
+        let response = self.client.get(&url).send().await?;
+        let ad_unit: AdUnit = response.json().await?;
+        Ok(ad_unit)
     }
 
     pub async fn fetch_units(&self, ad_slot: &AdSlot) -> Result<Vec<AdUnit>> {
