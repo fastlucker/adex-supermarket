@@ -1,6 +1,7 @@
 use primitives::{
     market::{Campaign, StatusType},
     AdSlot, AdUnit,
+    supermarket::units_for_slot::response::AdUnit as UFSAdUnit,
 };
 use reqwest::{Client, Error, StatusCode};
 use serde::Deserialize;
@@ -25,6 +26,12 @@ pub struct AdSlotResponse {
     pub accepted_referrers: Vec<Url>,
     pub categories: Vec<String>,
     pub alexa_rank: Option<f64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdUnitResponse {
+    pub unit: UFSAdUnit,
 }
 
 impl MarketApi {
@@ -52,21 +59,20 @@ impl MarketApi {
         let url = format!("{}/slots/{}", self.market_url, ipfs);
 
         let response = self.client.get(&url).send().await?;
-        dbg!("{:?}", &response);
         if StatusCode::NOT_FOUND == response.status() {
             Ok(None)
         } else {
             let ad_slot_response = response.json::<AdSlotResponse>().await?;
-
             Ok(Some(ad_slot_response))
         }
     }
 
-    pub async fn fetch_unit(&self, ipfs: &str) -> Result<AdUnit> {
+    pub async fn fetch_unit(&self, ipfs: &str) -> Result<Option<AdUnitResponse>> {
         let url = format!("{}/units/{}", self.market_url, ipfs);
+        dbg!("{:?}", &url);
         let response = self.client.get(&url).send().await?;
-        let ad_unit: AdUnit = response.json().await?;
-        Ok(ad_unit)
+        let ad_unit_response = response.json::<AdUnitResponse>().await?;
+        Ok(Some(ad_unit_response))
     }
 
     pub async fn fetch_units(&self, ad_slot: &AdSlot) -> Result<Vec<AdUnit>> {

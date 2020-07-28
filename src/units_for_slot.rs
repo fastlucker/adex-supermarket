@@ -8,8 +8,9 @@ use primitives::{
     targeting::{get_pricing_bounds, AdSlot, Error as EvalError, Global, Input, Output, Rule},
     util::tests::prep_db::DUMMY_CHANNEL,
     ValidatorId,
-    AdUnit,
+    // AdUnit,
     supermarket::units_for_slot::response,
+    supermarket::units_for_slot::response::{Response as UnitsForSlotResponse, AdUnit},
 };
 use serde::Serialize;
 use slog::{error, info, Logger};
@@ -61,13 +62,16 @@ pub async fn get_units_for_slot(
         let units = market.fetch_units(&ad_slot_response.slot).await?;
         let accepted_referrers = ad_slot_response.accepted_referrers.clone();
         let units_ipfses: Vec<&str> = units.iter().map(|au| au.ipfs.as_str()).collect();
-        let fallback_unit_ipfs = &ad_slot_response.slot.fallback_unit.clone().unwrap_or_else(|| "".to_string());
-        let fallback_unit = market.fetch_unit(fallback_unit_ipfs).await?;
+        let fallback_unit: Option<AdUnit> =  if ad_slot_response.slot.fallback_unit.is_some() {
+            let unit_ipfs = &ad_slot_response.slot.fallback_unit.clone().unwrap();
+            let ad_unit_response = market.fetch_unit(unit_ipfs).await?.unwrap();
+            Some(ad_unit_response.unit)
+        } else {
+            None
+        };
         info!(&logger, "Fetched AdUnits for AdSlot"; "AdSlot" => ipfs, "AdUnits" => ?&units_ipfses);
-        dbg!("{:?}", &fallback_unit);
         let query = req.uri().query().unwrap_or_default();
         let parsed_query = form_urlencoded::parse(query.as_bytes());
-        dbg!("{:?}", &query);
 
         let deposit_assets: Vec<String> = parsed_query
             .filter_map(|(key, value)| {
@@ -78,7 +82,6 @@ pub async fn get_units_for_slot(
                 }
             })
             .collect();
-        dbg!("{:?}", &deposit_assets);
         // For each adUnits apply input
         let ua_parser = Parser::new();
         let user_agent = req
@@ -128,15 +131,9 @@ pub async fn get_units_for_slot(
         .await;
 
         // @TODO: https://github.com/AdExNetwork/adex-supermarket/issues/9
-        #[derive(Serialize)]
-        #[serde(rename_all = "camelCase")]
-        struct UnitsForSlotResponse {
-            accepted_referrers: Vec<Url>,
-            fallback_unit: AdUnit,
-            campaigns: Vec<response::Campaign>,
-        }
 
         let response = UnitsForSlotResponse {
+            targeting_input_base: (),
             accepted_referrers,
             campaigns,
             fallback_unit,
