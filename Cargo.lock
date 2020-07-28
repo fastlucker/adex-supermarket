@@ -1307,7 +1307,7 @@ checksum = "74490b50b9fbe561ac330df47c08f3f33073d2d00c150f719147d7c54522fa1b"
 [[package]]
 name = "primitives"
 version = "0.1.0"
-source = "git+https://github.com/AdExNetwork/adex-validator-stack-rust?branch=supermarket-changes#7dc3598fe181e32755b2d4f4bf185cf8bb7fa612"
+source = "git+https://github.com/AdExNetwork/adex-validator-stack-rust?branch=dev#2b486925433465ff810b08eea64f1df8678e96ad"
 dependencies = [
  "chrono",
  "fake",
@@ -1328,9 +1328,11 @@ dependencies = [
  "slog",
  "slog-async",
  "slog-term",
+ "thiserror",
  "time",
  "tiny-keccak",
  "toml",
+ "url",
 ]
 
 [[package]]
@@ -1951,6 +1953,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d326610f408c7a4eb6f51c37c330e496b08506c9457c9d34287ecc38809fb060"
 dependencies = [
  "unicode-width",
+]
+
+[[package]]
+name = "thiserror"
+version = "1.0.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7dfdd070ccd8ccb78f4ad66bf1982dc37f620ef696c6b5028fe2ed83dd3d0d08"
+dependencies = [
+ "thiserror-impl",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "1.0.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd80fc12f73063ac132ac92aceea36734f04a1d93c1240c6944e23a3b8841793"
+dependencies = [
+ "proc-macro2 1.0.10",
+ "quote 1.0.3",
+ "syn 1.0.18",
 ]
 
 [[package]]

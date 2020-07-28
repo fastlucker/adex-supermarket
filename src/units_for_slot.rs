@@ -8,14 +8,19 @@ use primitives::{
     targeting::{get_pricing_bounds, AdSlot, Error as EvalError, Global, Input, Output, Rule},
     util::tests::prep_db::DUMMY_CHANNEL,
     ValidatorId,
+    AdUnit,
+    supermarket::units_for_slot::response,
 };
-use response::UnitsWithPrice;
 use serde::Serialize;
 use slog::{error, info, Logger};
 use std::convert::TryFrom;
 use std::sync::Arc;
 use url::{form_urlencoded, Url};
 use woothee::parser::Parser;
+
+#[cfg(test)]
+#[path = "units_for_slot_test.rs"]
+pub mod test;
 
 pub async fn get_units_for_slot(
     logger: &Logger,
@@ -56,12 +61,13 @@ pub async fn get_units_for_slot(
         let units = market.fetch_units(&ad_slot_response.slot).await?;
         let accepted_referrers = ad_slot_response.accepted_referrers.clone();
         let units_ipfses: Vec<&str> = units.iter().map(|au| au.ipfs.as_str()).collect();
-        // let fallback_unit_ipfs = &ad_slot_response.slot.fallback_unit?;
-        // let fallback_unit = market.fetch_unit(fallback_unit_ipfs).await?;
+        let fallback_unit_ipfs = &ad_slot_response.slot.fallback_unit.clone().unwrap_or_else(|| "".to_string());
+        let fallback_unit = market.fetch_unit(fallback_unit_ipfs).await?;
         info!(&logger, "Fetched AdUnits for AdSlot"; "AdSlot" => ipfs, "AdUnits" => ?&units_ipfses);
-
+        dbg!("{:?}", &fallback_unit);
         let query = req.uri().query().unwrap_or_default();
         let parsed_query = form_urlencoded::parse(query.as_bytes());
+        dbg!("{:?}", &query);
 
         let deposit_assets: Vec<String> = parsed_query
             .filter_map(|(key, value)| {
@@ -72,6 +78,7 @@ pub async fn get_units_for_slot(
                 }
             })
             .collect();
+        dbg!("{:?}", &deposit_assets);
         // For each adUnits apply input
         let ua_parser = Parser::new();
         let user_agent = req
@@ -124,15 +131,15 @@ pub async fn get_units_for_slot(
         #[derive(Serialize)]
         #[serde(rename_all = "camelCase")]
         struct UnitsForSlotResponse {
-            //? targeting_input_base: Vec<Rule>,
             accepted_referrers: Vec<Url>,
-            // fallback_unit: AdUnit,
+            fallback_unit: AdUnit,
             campaigns: Vec<response::Campaign>,
         }
 
         let response = UnitsForSlotResponse {
             accepted_referrers,
             campaigns,
+            fallback_unit,
         };
 
         Ok(Response::new(Body::from(serde_json::to_string(&response)?)))
@@ -204,7 +211,7 @@ async fn apply_targeting(
                     campaign.channel.spec.targeting_rules.clone()
                 };
 
-                let matching_units: Vec<UnitsWithPrice> = ad_units
+                let matching_units: Vec<response::UnitsWithPrice> = ad_units
                     .into_iter()
                     .filter_map(|ad_unit| {
                         let input = Input {
@@ -261,9 +268,9 @@ async fn apply_targeting(
                             return None;
                         }
 
-                        let ad_unit = response::AdUnit::from(ad_unit);
+                        let ad_unit = response::AdUnit::from(&ad_unit);
 
-                        Some(UnitsWithPrice {
+                        Some(response::UnitsWithPrice {
                             unit: ad_unit,
                             price,
                         })
@@ -295,101 +302,6 @@ fn eval_multiple(rules: &[Rule], input: &Input, output: &mut Output) {
 
         if !output.show {
             return;
-        }
-    }
-}
-
-mod response {
-    use chrono::{
-        serde::{ts_milliseconds, ts_milliseconds_option},
-        DateTime, Utc,
-    };
-    use primitives::{targeting::Rule, BigNum, ChannelId, SpecValidators, ValidatorId};
-    use serde::Serialize;
-
-    #[derive(Debug, Serialize)]
-    #[serde(rename_all = "camelCase")]
-    pub(super) struct UnitsWithPrice {
-        pub unit: AdUnit,
-        pub price: BigNum,
-    }
-
-    #[derive(Debug, Serialize)]
-    #[serde(rename_all = "camelCase")]
-    pub(super) struct Campaign {
-        #[serde(flatten)]
-        pub channel: Channel,
-        pub targeting_rules: Vec<Rule>,
-        pub units_with_price: Vec<UnitsWithPrice>,
-    }
-
-    #[derive(Debug, Serialize)]
-    #[serde(rename_all = "camelCase")]
-    pub(super) struct Channel {
-        pub id: ChannelId,
-        pub creator: ValidatorId,
-        pub deposit_asset: String,
-        pub deposit_amount: BigNum,
-        pub spec: Spec,
-    }
-
-    impl From<primitives::Channel> for Channel {
-        fn from(channel: primitives::Channel) -> Self {
-            Self {
-                id: channel.id,
-                creator: channel.creator,
-                deposit_asset: channel.deposit_asset,
-                deposit_amount: channel.deposit_amount,
-                spec: channel.spec.into(),
-            }
-        }
-    }
-
-    #[derive(Debug, Serialize)]
-    #[serde(rename_all = "camelCase")]
-    pub(super) struct Spec {
-        #[serde(with = "ts_milliseconds")]
-        pub withdraw_period_start: DateTime<Utc>,
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            with = "ts_milliseconds_option"
-        )]
-        pub active_from: Option<DateTime<Utc>>,
-        #[serde(with = "ts_milliseconds")]
-        pub created: DateTime<Utc>,
-        pub validators: SpecValidators,
-    }
-
-    impl From<primitives::ChannelSpec> for Spec {
-        fn from(channel_spec: primitives::ChannelSpec) -> Self {
-            Self {
-                withdraw_period_start: channel_spec.withdraw_period_start,
-                active_from: channel_spec.active_from,
-                created: channel_spec.created,
-                validators: channel_spec.validators,
-            }
-        }
-    }
-
-    #[derive(Debug, Serialize)]
-    #[serde(rename_all = "camelCase")]
-    pub(super) struct AdUnit {
-        /// Same as `ipfs`
-        pub id: String,
-        pub media_url: String,
-        pub media_mime: String,
-        pub target_url: String,
-    }
-
-    impl From<primitives::AdUnit> for AdUnit {
-        fn from(ad_unit: primitives::AdUnit) -> Self {
-            Self {
-                id: ad_unit.ipfs,
-                media_url: ad_unit.media_url,
-                media_mime: ad_unit.media_mime,
-                target_url: ad_unit.target_url,
-            }
         }
     }
 }

@@ -52,6 +52,7 @@ impl MarketApi {
         let url = format!("{}/slots/{}", self.market_url, ipfs);
 
         let response = self.client.get(&url).send().await?;
+        dbg!("{:?}", &response);
         if StatusCode::NOT_FOUND == response.status() {
             Ok(None)
         } else {
