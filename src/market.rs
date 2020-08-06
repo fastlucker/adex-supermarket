@@ -75,7 +75,7 @@ impl MarketApi {
         Ok(Some(ad_unit_response))
     }
 
-    pub async fn fetch_units(&self, ad_slot: &AdSlot) -> Result<Vec<AdUnit>> {
+    pub async fn fetch_units(&self, ad_slot: &AdSlot) -> Result<Vec<UFSAdUnit>> {
         let mut campaigns = Vec::new();
         let mut skip: u64 = 0;
         let limit = Self::MARKET_AD_UNITS_LIMIT;
@@ -103,7 +103,7 @@ impl MarketApi {
     }
 
     /// `skip` - how many records it should skip (pagination)
-    async fn fetch_units_page(&self, ad_type: &str, skip: u64) -> Result<Vec<AdUnit>> {
+    async fn fetch_units_page(&self, ad_type: &str, skip: u64) -> Result<Vec<UFSAdUnit>> {
         let url = format!(
             "{}/units?limit={}&skip={}&type={}",
             self.market_url,
@@ -113,7 +113,7 @@ impl MarketApi {
         );
         let response = self.client.get(&url).send().await?;
 
-        let ad_units: Vec<AdUnit> = response.json().await?;
+        let ad_units: Vec<UFSAdUnit> = response.json().await?;
 
         Ok(ad_units)
     }

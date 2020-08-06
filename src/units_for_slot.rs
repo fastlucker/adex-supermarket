@@ -61,7 +61,7 @@ pub async fn get_units_for_slot(
         // @TODO: Handle error with units retrieval
         let units = market.fetch_units(&ad_slot_response.slot).await?;
         let accepted_referrers = ad_slot_response.accepted_referrers.clone();
-        let units_ipfses: Vec<&str> = units.iter().map(|au| au.ipfs.as_str()).collect();
+        let units_ipfses: Vec<&str> = units.iter().map(|au| au.id.as_str()).collect();
         let fallback_unit: Option<AdUnit> =  if ad_slot_response.slot.fallback_unit.is_some() {
             let unit_ipfs = &ad_slot_response.slot.fallback_unit.clone().unwrap();
             let ad_unit_response = market.fetch_unit(unit_ipfs).await?.unwrap();
@@ -110,7 +110,6 @@ pub async fn get_units_for_slot(
             get_campaigns(cache, config, &deposit_assets, publisher_id).await;
 
         info!(&logger, "Fetched Cache campaigns"; "length" => campaigns_limited_by_earner.len(), "publisher_id" => %publisher_id);
-
         // We return those in the result (which means AdView would have those) but we don't actually use them
         // we do that in order to have the same variables as the validator, so that the `price` is the same
         let targeting_input_ad_slot = Some(AdSlot {
@@ -167,7 +166,7 @@ async fn get_campaigns(
             })
             .partition(|&campaign| campaign.balances.contains_key(&publisher_id));
 
-    if campaigns_by_earner.len() >= config.limits.max_channels_earning_from.into() {
+            if campaigns_by_earner.len() >= config.limits.max_channels_earning_from.into() {
         campaigns_by_earner.into_iter().cloned().collect()
     } else {
         campaigns_by_earner.extend(rest_of_campaigns.iter());
