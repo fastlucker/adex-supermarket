@@ -5,23 +5,20 @@ use crate::{
 use chrono::Utc;
 use hyper::{header::USER_AGENT, Body, Request, Response};
 use primitives::{
-    targeting::{get_pricing_bounds, AdSlot, Error as EvalError, Global, Input, Output, Rule},
-    util::tests::prep_db::DUMMY_CHANNEL,
-    ValidatorId,
-    // AdUnit,
     supermarket::units_for_slot::response,
-    supermarket::units_for_slot::response::{Response as UnitsForSlotResponse, AdUnit},
+    supermarket::units_for_slot::response::{AdUnit, Response as UnitsForSlotResponse},
+    targeting::{get_pricing_bounds, input, Error as EvalError, Output, Rule},
+    ValidatorId,
 };
-use serde::Serialize;
 use slog::{error, info, Logger};
 use std::convert::TryFrom;
 use std::sync::Arc;
 use url::{form_urlencoded, Url};
 use woothee::parser::Parser;
 
-#[cfg(test)]
-#[path = "units_for_slot_test.rs"]
-pub mod test;
+// #[cfg(test)]
+// #[path = "units_for_slot_test.rs"]
+// pub mod test;
 
 pub async fn get_units_for_slot(
     logger: &Logger,
@@ -34,21 +31,12 @@ pub async fn get_units_for_slot(
     if ipfs.is_empty() {
         Ok(not_found())
     } else {
-        let fetch_slot = match market.fetch_slot(&ipfs).await {
-            Ok(response) => response,
-            Err(err) => {
-                error!(&logger, "Error fetching AdSlot"; "AdSlot" => ipfs, "error" => %err);
-
-                return Ok(service_unavailable());
-            }
-        };
-
-        let ad_slot_response = match fetch_slot {
-            Some(response) => {
+        let ad_slot_response = match market.fetch_slot(&ipfs).await {
+            Ok(Some(response)) => {
                 info!(&logger, "Fetched AdSlot"; "AdSlot" => ipfs);
                 response
             }
-            None => {
+            Ok(None) => {
                 info!(
                     &logger,
                     "AdSlot ({}) not found in Market",
@@ -57,18 +45,41 @@ pub async fn get_units_for_slot(
                 );
                 return Ok(not_found());
             }
+            Err(err) => {
+                error!(&logger, "Error fetching AdSlot"; "AdSlot" => ipfs, "error" => %err);
+
+                return Ok(service_unavailable());
+            }
         };
+
         // @TODO: Handle error with units retrieval
         let units = market.fetch_units(&ad_slot_response.slot).await?;
         let accepted_referrers = ad_slot_response.accepted_referrers.clone();
         let units_ipfses: Vec<&str> = units.iter().map(|au| au.id.as_str()).collect();
-        let fallback_unit: Option<AdUnit> =  if ad_slot_response.slot.fallback_unit.is_some() {
-            let unit_ipfs = &ad_slot_response.slot.fallback_unit.clone().unwrap();
-            let ad_unit_response = market.fetch_unit(unit_ipfs).await?.unwrap();
-            Some(ad_unit_response.unit)
-        } else {
-            None
+        let fallback_unit: Option<AdUnit> = match ad_slot_response.slot.fallback_unit.as_ref() {
+            Some(unit_ipfs) => {
+                let ad_unit_response = match market.fetch_unit(&unit_ipfs).await? {
+                    Some(response) => {
+                        info!(&logger, "Fetched AdUnit"; "AdUnit" => unit_ipfs);
+                        response
+                    }
+                    None => {
+                        info!(
+                            &logger,
+                            "AdUnit ({}) not found in Market",
+                            unit_ipfs;
+                            "AdUnit" => unit_ipfs
+                        );
+
+                        return Ok(not_found());
+                    }
+                };
+
+                Some(ad_unit_response.unit)
+            }
+            None => None,
         };
+
         info!(&logger, "Fetched AdUnits for AdSlot"; "AdSlot" => ipfs, "AdUnits" => ?&units_ipfses);
         let query = req.uri().query().unwrap_or_default();
         let parsed_query = form_urlencoded::parse(query.as_bytes());
@@ -110,29 +121,46 @@ pub async fn get_units_for_slot(
             get_campaigns(cache, config, &deposit_assets, publisher_id).await;
 
         info!(&logger, "Fetched Cache campaigns"; "length" => campaigns_limited_by_earner.len(), "publisher_id" => %publisher_id);
+
         // We return those in the result (which means AdView would have those) but we don't actually use them
         // we do that in order to have the same variables as the validator, so that the `price` is the same
-        let targeting_input_ad_slot = Some(AdSlot {
+        let targeting_input_ad_slot = Some(input::AdSlot {
             categories: ad_slot_response.categories.clone(),
-            hostname: hostname.clone(),
+            hostname,
             alexa_rank: ad_slot_response.alexa_rank,
         });
+
+        let mut targeting_input_base = input::Source {
+            ad_view: None,
+            global: input::Global {
+                ad_slot_id: ad_slot_response.slot.ipfs.clone(),
+                ad_slot_type: ad_slot_response.slot.ad_type.clone(),
+                publisher_id,
+                country: country.clone(),
+                event_type: "IMPRESSION".to_string(),
+                // TODO: handle the error instead of `panic!`ing
+                seconds_since_epoch: u64::try_from(Utc::now().timestamp()).expect("Should convert"),
+                user_agent_os: user_agent_os.clone(),
+                user_agent_browser_family: user_agent_browser_family.clone(),
+                ad_unit: None,
+                balances: None,
+                channel: None,
+            },
+            ad_slot: None,
+        };
 
         let campaigns = apply_targeting(
             config,
             campaigns_limited_by_earner,
+            targeting_input_base.clone(),
             ad_slot_response,
-            country,
-            user_agent_os,
-            user_agent_browser_family,
-            hostname,
         )
         .await;
 
-        // @TODO: https://github.com/AdExNetwork/adex-supermarket/issues/9
+        targeting_input_base.ad_slot = targeting_input_ad_slot;
 
         let response = UnitsForSlotResponse {
-            targeting_input_base: (),
+            targeting_input_base: targeting_input_base.into(),
             accepted_referrers,
             campaigns,
             fallback_unit,
@@ -166,7 +194,7 @@ async fn get_campaigns(
             })
             .partition(|&campaign| campaign.balances.contains_key(&publisher_id));
 
-            if campaigns_by_earner.len() >= config.limits.max_channels_earning_from.into() {
+    if campaigns_by_earner.len() >= config.limits.max_channels_earning_from.into() {
         campaigns_by_earner.into_iter().cloned().collect()
     } else {
         campaigns_by_earner.extend(rest_of_campaigns.iter());
@@ -178,14 +206,9 @@ async fn get_campaigns(
 async fn apply_targeting(
     config: &Config,
     campaigns: Vec<Campaign>,
+    input_base: input::Source,
     ad_slot_response: AdSlotResponse,
-    country: Option<String>,
-    user_agent_os: Option<String>,
-    user_agent_browser_family: Option<String>,
-    hostname: String,
 ) -> Vec<response::Campaign> {
-    let publisher_id = ad_slot_response.slot.owner;
-
     campaigns
         .into_iter()
         .filter_map::<response::Campaign, _>(|campaign| {
@@ -206,30 +229,15 @@ async fn apply_targeting(
                 } else {
                     campaign.channel.spec.targeting_rules.clone()
                 };
+                let mut campaign_input = input_base.clone();
+                campaign_input.global.channel = Some(campaign.channel.clone());
 
                 let matching_units: Vec<response::UnitsWithPrice> = ad_units
                     .into_iter()
                     .filter_map(|ad_unit| {
-                        let input = Input {
-                            ad_view: None,
-                            global: Global {
-                                ad_slot_id: ad_slot_response.slot.ipfs.clone(),
-                                ad_slot_type: ad_slot_response.slot.ad_type.clone(),
-                                publisher_id,
-                                country: country.clone(),
-                                event_type: "IMPRESSION".to_string(),
-                                // TODO: handle the error instead of `panic!`ing
-                                seconds_since_epoch: u64::try_from(Utc::now().timestamp())
-                                    .expect("Should convert"),
-                                user_agent_os: user_agent_os.clone(),
-                                user_agent_browser_family: user_agent_browser_family.clone(),
-                                ad_unit: Default::default(),
-                                balances: Default::default(),
-                                channel: DUMMY_CHANNEL.clone(),
-                                status: Default::default(),
-                            },
-                            ad_slot: None,
-                        };
+                        let mut unit_input = campaign_input.clone();
+                        unit_input.global.ad_unit = Some(ad_unit.clone());
+                        let input = input::Input::Source(Box::new(unit_input));
 
                         let pricing_bounds = get_pricing_bounds(&campaign.channel, "IMPRESSION");
                         let mut output = Output {
@@ -288,7 +296,7 @@ async fn apply_targeting(
 }
 
 // @TODO: Logging & move to Targeting when ready
-fn eval_multiple(rules: &[Rule], input: &Input, output: &mut Output) {
+fn eval_multiple(rules: &[Rule], input: &input::Input, output: &mut Output) {
     for rule in rules {
         match rule.eval(input, output) {
             Ok(_) => {}

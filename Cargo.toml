@@ -5,7 +5,7 @@ authors = ["Lachezar Lechev <lachezar.lechev@adex.network>"]
 edition = "2018"
 
 [dependencies]
-primitives = { git = "https://github.com/AdExNetwork/adex-validator-stack-rust", branch = "supermarket-changes" }
+primitives = { git = "https://github.com/AdExNetwork/adex-validator-stack-rust", branch = "aip-31-remove-obsolete-fields" }
 chrono = { version = "0.4" }
 futures = { version = "0.3" }
 
