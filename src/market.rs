@@ -69,7 +69,7 @@ impl MarketApi {
 
     pub async fn fetch_unit(&self, ipfs: &str) -> Result<Option<AdUnitResponse>> {
         let url = format!("{}/units/{}", self.market_url, ipfs);
-        dbg!("{:?}", &url);
+
         let response = self.client.get(&url).send().await?;
         let ad_unit_response = response.json::<AdUnitResponse>().await?;
         Ok(Some(ad_unit_response))

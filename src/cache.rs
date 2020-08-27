@@ -72,7 +72,7 @@ impl Cache {
             |(mut active, mut finalized), (id, campaign)| {
                 // we don't need to check if the ChannelId is already in either active or finalized,
                 // since the Campaigns (ChannelId) cannot repeat in the HashMap
-                match campaign.status {
+                match &campaign.status {
                     Status::Finalized(_) => {
                         finalized.insert(id);
                     }
@@ -200,26 +200,30 @@ async fn collect_all_campaigns(
             We need to figure out a way to distinguish between Channels, check if they are the same and to remove incorrect ones
             For now just check if the channel is already inside the fetched channels and log if it is
         */
-        if campaigns.contains_key(&channel.id) {
-            info!(
-                logger,
-                "Skipping Campaign ({:?}) because it's already fetched from another Validator",
-                &channel.id
-            )
-        } else {
-            match get_status(&sentry, &channel).await {
-                Ok((status, balances)) => {
-                    let channel_id = channel.id;
-                    let campaign = Campaign::new(channel, status, balances);
-
-                    campaigns.insert(channel_id, campaign);
-                }
-                Err(err) => error!(
-                    logger,
-                    "Failed to fetch Campaign ({:?}) status from Validator", channel.id; "error" => ?err
-                ),
+        // if campaigns.contains_key(&channel.id) {
+        //     info!(
+        //         logger,
+        //         "Skipping Campaign ({:?}) because it's already fetched from another Validator",
+        //         &channel.id
+        //     )
+        // } else {
+        match get_status(&sentry, &channel).await {
+            Ok((status, balances)) => {
+                let channel_id = channel.id;
+                campaigns
+                    .entry(channel_id)
+                    .and_modify(|campaign: &mut Campaign| {
+                        campaign.status = status.clone();
+                        campaign.balances = balances.clone();
+                    })
+                    .or_insert_with(|| Campaign::new(channel, status, balances));
             }
+            Err(err) => error!(
+                logger,
+                "Failed to fetch Campaign ({:?}) status from Validator", channel.id; "error" => ?err
+            ),
         }
+        // }
     }
 
     campaigns
@@ -260,8 +264,12 @@ async fn get_all_channels<'a>(
 mod test {
     use super::*;
 
+    use crate::status;
     use crate::status::test::{get_approve_state_msg, get_heartbeat_msg, get_new_state_msg};
-    use crate::{config::DEVELOPMENT, util::test::discard_logger};
+    use crate::{
+        config::DEVELOPMENT,
+        util::test::{discard_logger, logger},
+    };
     use chrono::{Duration, Utc};
     use primitives::{
         sentry::{
@@ -272,7 +280,7 @@ mod test {
         validator::{MessageTypes, NewState},
     };
     use wiremock::{
-        matchers::{method, path},
+        matchers::{method, path, query_param},
         Mock, MockServer, ResponseTemplate,
     };
 
@@ -390,7 +398,7 @@ mod test {
         Mock::given(method("GET"))
             .and(path("/leader/last-approved"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&leader_last_approved))
-            .expect(1_u64)
+            .expect(2_u64)
             .mount(&mock_server)
             .await;
 
@@ -400,7 +408,7 @@ mod test {
                 leader_id
             )))
             .respond_with(ResponseTemplate::new(200).set_body_json(&leader_latest_new_state))
-            .expect(1_u64)
+            .expect(2_u64)
             .mount(&mock_server)
             .await;
 
@@ -414,7 +422,7 @@ mod test {
         Mock::given(method("GET"))
             .and(path("/follower/last-approved"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&follower_last_approved))
-            .expect(1_u64)
+            .expect(2_u64)
             .mount(&mock_server)
             .await;
 
@@ -657,7 +665,8 @@ mod test {
         Mock::given(method("GET"))
             .and(path("/leader/last-approved"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&leader_last_approved))
-            .expect(1_u64)
+            // The second time we call is from the Follower Validator to get up to date Status of the Campaign
+            .expect(2_u64)
             .mount(&mock_server)
             .await;
 
@@ -671,7 +680,7 @@ mod test {
         Mock::given(method("GET"))
             .and(path("/follower/last-approved"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&follower_last_approved))
-            .expect(1_u64)
+            .expect(2_u64)
             .mount(&mock_server)
             .await;
 
@@ -696,6 +705,18 @@ mod test {
     }
 
     #[tokio::test]
+    /// Leader:
+    /// - Single Channel with Waiting status in Cache
+    ///     - validUntil is set ot < now - this will lead to get_status() returning Finalized::Expired
+    /// - NewState with expected BalancesMap
+    ///
+    /// - Leader Heartbeat
+    /// - Follower Heartbeat
+    /// Follower:
+    /// - NewState
+    /// - Leader Heartbeat
+    /// - Follower Heartbeat
+    //
     async fn cache_fetches_new_campaigns_and_cache_finalizes_campaign() {
         let mock_server = MockServer::start().await;
 
@@ -756,8 +777,10 @@ mod test {
 
         Mock::given(method("GET"))
             .and(path("/leader/last-approved"))
+            .and(query_param("withHeartbeat", "true"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&leader_last_approved))
-            .expect(1_u64)
+            // The second time we call is from the Follower Validator to get up to date Status of the Campaign
+            .expect(2_u64)
             .mount(&mock_server)
             .await;
 
@@ -770,7 +793,10 @@ mod test {
 
         cache.fetch_new_campaigns().await;
 
-        assert!(cache.active.read().await.is_empty());
+        let active = cache.active.read().await;
+
+        assert!(active.is_empty());
+
         let finalized = cache.finalized.read().await;
 
         assert_eq!(1, finalized.len());

@@ -36,11 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = Config::new(config_path, &environment)?;
 
-    let decorator = slog_term::TermDecorator::new().build();
-    let drain = slog_term::FullFormat::new(decorator).build().fuse();
-    let drain = slog_async::Async::new(drain).build().fuse();
-
-    let logger = slog::Logger::root(drain, slog::o!());
+    let logger = logger();
 
     info!(&logger, "ENV: `{}`; {:#?}", environment, config);
 
@@ -49,4 +45,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!(&logger, "Started at: {}", &addr);
 
     Ok(serve(addr, logger, market_url, config).await?)
+}
+
+pub fn logger() -> slog::Logger {
+    let decorator = slog_term::TermDecorator::new().build();
+    let drain = slog_term::FullFormat::new(decorator).build().fuse();
+    let drain = slog_async::Async::new(drain).build().fuse();
+
+    slog::Logger::root(drain, slog::o!())
 }
