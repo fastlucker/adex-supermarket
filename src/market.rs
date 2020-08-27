@@ -1,10 +1,10 @@
 use primitives::{
     market::{Campaign, StatusType},
-    AdSlot, AdUnit,
-    supermarket::units_for_slot::response::AdUnit as UFSAdUnit,
+    supermarket::units_for_slot::response::AdUnit,
+    AdSlot,
 };
 use reqwest::{Client, Error, StatusCode};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use slog::{info, Logger};
 use std::fmt;
 use url::Url;
@@ -19,7 +19,7 @@ pub struct MarketApi {
     logger: Logger,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdSlotResponse {
     pub slot: AdSlot,
@@ -31,7 +31,7 @@ pub struct AdSlotResponse {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdUnitResponse {
-    pub unit: UFSAdUnit,
+    pub unit: AdUnit,
 }
 
 impl MarketApi {
@@ -75,7 +75,7 @@ impl MarketApi {
         Ok(Some(ad_unit_response))
     }
 
-    pub async fn fetch_units(&self, ad_slot: &AdSlot) -> Result<Vec<UFSAdUnit>> {
+    pub async fn fetch_units(&self, ad_slot: &AdSlot) -> Result<Vec<AdUnit>> {
         let mut campaigns = Vec::new();
         let mut skip: u64 = 0;
         let limit = Self::MARKET_AD_UNITS_LIMIT;
@@ -103,7 +103,7 @@ impl MarketApi {
     }
 
     /// `skip` - how many records it should skip (pagination)
-    async fn fetch_units_page(&self, ad_type: &str, skip: u64) -> Result<Vec<UFSAdUnit>> {
+    async fn fetch_units_page(&self, ad_type: &str, skip: u64) -> Result<Vec<AdUnit>> {
         let url = format!(
             "{}/units?limit={}&skip={}&type={}",
             self.market_url,
@@ -113,7 +113,7 @@ impl MarketApi {
         );
         let response = self.client.get(&url).send().await?;
 
-        let ad_units: Vec<UFSAdUnit> = response.json().await?;
+        let ad_units: Vec<AdUnit> = response.json().await?;
 
         Ok(ad_units)
     }

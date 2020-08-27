@@ -117,13 +117,13 @@ impl Cache {
                 // This will replace existing Campaigns and it will add the newly found ones
                 ActiveAction::New(new_active) => active.extend(new_active),
                 ActiveAction::Update(update_active) => {
-                    for (id, (new_status, new_balances)) in update_active {
-                        active.get_mut(&id).and_then(|campaign| {
-                            campaign.status = new_status;
-                            campaign.balances = new_balances;
-
-                            Some(campaign)
-                        });
+                    for (channel_id, (new_status, new_balances)) in update_active {
+                        active
+                            .entry(channel_id)
+                            .and_modify(|campaign: &mut Campaign| {
+                                campaign.status = new_status;
+                                campaign.balances = new_balances;
+                            });
                     }
                 }
             }
@@ -264,12 +264,8 @@ async fn get_all_channels<'a>(
 mod test {
     use super::*;
 
-    use crate::status;
     use crate::status::test::{get_approve_state_msg, get_heartbeat_msg, get_new_state_msg};
-    use crate::{
-        config::DEVELOPMENT,
-        util::test::{discard_logger, logger},
-    };
+    use crate::{config::DEVELOPMENT, util::test::discard_logger};
     use chrono::{Duration, Utc};
     use primitives::{
         sentry::{
@@ -709,14 +705,13 @@ mod test {
     /// - Single Channel with Waiting status in Cache
     ///     - validUntil is set ot < now - this will lead to get_status() returning Finalized::Expired
     /// - NewState with expected BalancesMap
+    /// - Leader Heartbeat
+    /// - Follower Heartbeat
     ///
-    /// - Leader Heartbeat
-    /// - Follower Heartbeat
     /// Follower:
-    /// - NewState
-    /// - Leader Heartbeat
-    /// - Follower Heartbeat
-    //
+    /// - Single Channel from Follower `/channel/list`
+    ///
+    /// Final status: Finalized::Expired
     async fn cache_fetches_new_campaigns_and_cache_finalizes_campaign() {
         let mock_server = MockServer::start().await;
 
