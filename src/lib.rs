@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use http::{StatusCode, Uri};
 use slog::{error, info, Logger};
+use crate::cache::CacheLike;
 
 pub mod cache;
 pub mod config;

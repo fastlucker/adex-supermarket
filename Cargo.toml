@@ -8,6 +8,7 @@ edition = "2018"
 primitives = { git = "https://github.com/AdExNetwork/adex-validator-stack-rust", branch = "aip-31-remove-obsolete-fields" }
 chrono = { version = "0.4" }
 futures = { version = "0.3" }
+async-trait = { version = "0.1.4" }
 
 # Server
 tokio = { version = "0.2", features = ["macros", "rt-threaded", "sync"] }
