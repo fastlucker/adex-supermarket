@@ -47,7 +47,7 @@ mod units_for_slot_tests {
 		}]
 	}
 
-	fn get_mock_slot() -> AdSlot {
+	fn get_mock_slot() -> &AdSlot {
 		let min_per_impression: HashMap<String, BigNum> = HashMap::new();
 		min_per_impression.insert("0x89d24A6b4CcB1B6fAA2625fE562bDD9a23260359".to_string(), BigNum::from_str("700000000000000"));
 		let rules = get_mock_rules();
@@ -66,7 +66,11 @@ mod units_for_slot_tests {
 			rules,
 		};
 
-		slot
+		&slot
+	}
+
+	fn get_expected_response() -> Response<Body> {
+		Response::default()
 	}
 
 	fn get_mock_request(market_url: &str) -> Request<Body> {
@@ -102,13 +106,13 @@ mod units_for_slot_tests {
 		let mock_request = get_mock_request(&market_url);
 		let mock_units = get_mock_units();
 		let server = MockServer::start().await;
+		let expected_response = get_expected_response();
 		Mock::given(method("GET"))
 			.and(path("/units"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&mock_units))
             .mount(&server)
             .await;
-		let req = get_units_for_slot(&logger, market, &config, &mock_cache, mock_request).await.expect("call shouldn't fail with provided data");
-		dbg!(req);
-		assert_eq!(true, true);
+		let res = get_units_for_slot(&logger, market, &config, &mock_cache, mock_request).await.expect("call shouldn't fail with provided data");
+		assert_eq!(res.body, expected_response.body);
 	}
 }
