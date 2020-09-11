@@ -76,7 +76,7 @@ impl MarketApi {
     }
 
     pub async fn fetch_units(&self, ad_slot: &AdSlot) -> Result<Vec<AdUnit>> {
-        let mut campaigns = Vec::new();
+        let mut units = Vec::new();
         let mut skip: u64 = 0;
         let limit = Self::MARKET_AD_UNITS_LIMIT;
 
@@ -86,8 +86,8 @@ impl MarketApi {
             // get the count before appending the page results to all
             let count = page_results.len() as u64;
 
-            // append all received campaigns
-            campaigns.append(&mut page_results);
+            // append all received units
+            units.append(&mut page_results);
             // add the number of results we need to skip in the next iteration
             skip += count;
 
@@ -99,7 +99,7 @@ impl MarketApi {
             }
         }
 
-        Ok(campaigns)
+        Ok(units)
     }
 
     /// `skip` - how many records it should skip (pagination)

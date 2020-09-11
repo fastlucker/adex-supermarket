@@ -30,9 +30,9 @@ pub enum ActiveAction {
 #[async_trait]
 pub trait CacheLike<'a>: core::fmt::Debug + Clone {
     async fn initialize(logger: Logger, config: Config) -> Result<Self, Error> where Self: Sized;
-    async fn fetch_new_campaigns(self);
-    async fn update(self, new_active: ActiveAction, new_finalized: FinalizedCache);
-    async fn fetch_campaign_updates(self);
+    async fn fetch_new_campaigns(&self);
+    async fn update(&self, new_active: ActiveAction, new_finalized: FinalizedCache);
+    async fn fetch_campaign_updates(&self);
 }
 
 #[derive(Debug, Clone)]
@@ -197,145 +197,145 @@ impl<'a> CacheLike<'a> for Cache {
     }
 }
 
-// #[derive(Debug, Clone)]
-// pub struct MockCache {
-//     pub active: Cached<ActiveCache>,
-//     pub finalized: Cached<FinalizedCache>,
-//     validators: HashSet<Url>,
-//     logger: Logger,
-//     sentry: SentryApi,
-// }
+#[derive(Debug, Clone)]
+pub struct MockCache {
+    pub active: Cached<ActiveCache>,
+    pub finalized: Cached<FinalizedCache>,
+    validators: HashSet<Url>,
+    logger: Logger,
+    sentry: SentryApi,
+}
 
-// #[async_trait]
-// impl<'a> CacheLike<'a> for MockCache {
-//     async fn initialize(logger: Logger, config: Config) -> Result<Self, Error> {
-//         info!(
-//             &logger,
-//             "Initialize a mock Cache"; "validators" => format_args!("{:?}", &config.validators)
-//         );
-//         let sentry = SentryApi::new(config.timeouts.validator_request)?;
+#[async_trait]
+impl<'a> CacheLike<'a> for MockCache {
+    async fn initialize(logger: Logger, config: Config) -> Result<Self, Error> {
+        info!(
+            &logger,
+            "Initialize a mock Cache"; "validators" => format_args!("{:?}", &config.validators)
+        );
+        let sentry = SentryApi::new(config.timeouts.validator_request)?;
 
-//         let validators = config.validators.clone();
+        let validators = config.validators.clone();
 
-//         let mock_cache = Self {
-//             active: Default::default(),
-//             finalized: Default::default(),
-//             validators,
-//             logger,
-//             sentry,
-//         };
+        let mock_cache = Self {
+            active: Default::default(),
+            finalized: Default::default(),
+            validators,
+            logger,
+            sentry,
+        };
 
-//         // collect and initialize the active campaigns
-//         mock_cache.fetch_new_campaigns().await;
+        // collect and initialize the active campaigns
+        mock_cache.fetch_new_campaigns().await;
 
-//         Ok(mock_cache)
-//     }
+        Ok(mock_cache)
+    }
 
-//     async fn fetch_new_campaigns(&self) {
-//         let campaigns = collect_mock_campaigns();
+    async fn fetch_new_campaigns(&self) {
+        let campaigns = collect_mock_campaigns();
 
-//         let (active, finalized) = campaigns.into_iter().fold(
-//             (HashMap::new(), HashSet::new()),
-//             |(mut active, mut finalized), (id, campaign)| {
-//                 // we don't need to check if the ChannelId is already in either active or finalized,
-//                 // since the Campaigns (ChannelId) cannot repeat in the HashMap
-//                 match &campaign.status {
-//                     Status::Finalized(_) => {
-//                         finalized.insert(id);
-//                     }
-//                     _ => {
-//                         active.insert(id, campaign);
-//                     }
-//                 }
-//                 (active, finalized)
-//             },
-//         );
+        let (active, finalized) = campaigns.into_iter().fold(
+            (HashMap::new(), HashSet::new()),
+            |(mut active, mut finalized), (id, campaign)| {
+                // we don't need to check if the ChannelId is already in either active or finalized,
+                // since the Campaigns (ChannelId) cannot repeat in the HashMap
+                match &campaign.status {
+                    Status::Finalized(_) => {
+                        finalized.insert(id);
+                    }
+                    _ => {
+                        active.insert(id, campaign);
+                    }
+                }
+                (active, finalized)
+            },
+        );
 
-//         self.update(ActiveAction::New(active), finalized).await
-//     }
+        self.update(ActiveAction::New(active), finalized).await
+    }
 
-//     async fn update(&self, new_active: ActiveAction, new_finalized: FinalizedCache) {
-//         // Updates Active cache
-//         // - Extend the Active Campaigns with the new ones
-//         // - Remove the Finalized `ChannelId`s from the Active Campaigns
-//         {
-//             match &new_active {
-//                 ActiveAction::New(new_active) => {
-//                     info!(&self.logger, "Adding New / Updating {} Active Campaigns", new_active.len(); "ChannelIds" => format_args!("{:?}", new_active.keys()));
-//                 }
+    async fn update(&self, new_active: ActiveAction, new_finalized: FinalizedCache) {
+        // Updates Active cache
+        // - Extend the Active Campaigns with the new ones
+        // - Remove the Finalized `ChannelId`s from the Active Campaigns
+        {
+            match &new_active {
+                ActiveAction::New(new_active) => {
+                    info!(&self.logger, "Adding New / Updating {} Active Campaigns", new_active.len(); "ChannelIds" => format_args!("{:?}", new_active.keys()));
+                }
 
-//                 ActiveAction::Update(update_active) => {
-//                     info!(&self.logger, "Updating {} Active Campaigns", update_active.len(); "ChannelIds" => format_args!("{:?}", update_active.keys()));
-//                 }
-//             }
+                ActiveAction::Update(update_active) => {
+                    info!(&self.logger, "Updating {} Active Campaigns", update_active.len(); "ChannelIds" => format_args!("{:?}", update_active.keys()));
+                }
+            }
 
-//             let mut active = self.active.write().await;
+            let mut active = self.active.write().await;
 
-//             match new_active {
-//                 // This will replace existing Campaigns and it will add the newly found ones
-//                 ActiveAction::New(new_active) => active.extend(new_active),
-//                 ActiveAction::Update(update_active) => {
-//                     for (channel_id, (new_status, new_balances)) in update_active {
-//                         active
-//                             .entry(channel_id)
-//                             .and_modify(|campaign: &mut Campaign| {
-//                                 campaign.status = new_status;
-//                                 campaign.balances = new_balances;
-//                             });
-//                     }
-//                 }
-//             }
+            match new_active {
+                // This will replace existing Campaigns and it will add the newly found ones
+                ActiveAction::New(new_active) => active.extend(new_active),
+                ActiveAction::Update(update_active) => {
+                    for (channel_id, (new_status, new_balances)) in update_active {
+                        active
+                            .entry(channel_id)
+                            .and_modify(|campaign: &mut Campaign| {
+                                campaign.status = new_status;
+                                campaign.balances = new_balances;
+                            });
+                    }
+                }
+            }
 
-//             info!(&self.logger, "Try to Finalize Campaigns in the Active Cache"; "finalized" => format_args!("{:?}", &new_finalized));
+            info!(&self.logger, "Try to Finalize Campaigns in the Active Cache"; "finalized" => format_args!("{:?}", &new_finalized));
 
-//             for id in new_finalized.iter() {
-//                 // remove from active campaigns and log
-//                 if let Some(campaign) = active.remove(id) {
-//                     info!(&self.logger, "Removed Campaign ({:?}) from Active Cache", id; "campaign" => ?campaign);
-//                 }
-//                 // the None variant is when a campaign is Finalized before it was inserted inside the Active Cache
-//             }
-//         } // Active cache - release of RwLockWriteGuard
+            for id in new_finalized.iter() {
+                // remove from active campaigns and log
+                if let Some(campaign) = active.remove(id) {
+                    info!(&self.logger, "Removed Campaign ({:?}) from Active Cache", id; "campaign" => ?campaign);
+                }
+                // the None variant is when a campaign is Finalized before it was inserted inside the Active Cache
+            }
+        } // Active cache - release of RwLockWriteGuard
 
-//         // Updates Finalized cache
-//         // - Extend the Finalized `ChannelId`s with the new ones
-//         {
-//             info!(&self.logger, "Extend with {} Finalized Campaigns", new_finalized.len(); "finalized" => format_args!("{:?}", &new_finalized));
-//             let mut finalized = self.finalized.write().await;
+        // Updates Finalized cache
+        // - Extend the Finalized `ChannelId`s with the new ones
+        {
+            info!(&self.logger, "Extend with {} Finalized Campaigns", new_finalized.len(); "finalized" => format_args!("{:?}", &new_finalized));
+            let mut finalized = self.finalized.write().await;
 
-//             finalized.extend(new_finalized);
-//         } // Finalized cache - release of RwLockWriteGuard
-//     }
+            finalized.extend(new_finalized);
+        } // Finalized cache - release of RwLockWriteGuard
+    }
 
-//     async fn fetch_campaign_updates(&self) {
-//         // we need this scope to drop the Read Lock on `self.active`
-//         // before performing the finalize & update actions
-//         let (update, finalize) = {
-//             let active = self.active.read().await;
+    async fn fetch_campaign_updates(&self) {
+        // we need this scope to drop the Read Lock on `self.active`
+        // before performing the finalize & update actions
+        let (update, finalize) = {
+            let active = self.active.read().await;
 
-//             let mut update = HashMap::new();
-//             let mut finalize = HashSet::new();
-//             for (id, campaign) in active.iter() {
-//                 match get_status(&self.sentry, &campaign.channel).await {
-//                     Ok((Status::Finalized(_), _balances)) => {
-//                         finalize.insert(*id);
-//                     }
-//                     Ok((new_status, new_balances)) => {
-//                         update.insert(*id, (new_status, new_balances));
-//                     }
-//                     Err(err) => error!(
-//                         &self.logger,
-//                         "Error getting Campaign ({:?}) status", id; "error" => ?err
-//                     ),
-//                 };
-//             }
+            let mut update = HashMap::new();
+            let mut finalize = HashSet::new();
+            for (id, campaign) in active.iter() {
+                match get_status(&self.sentry, &campaign.channel).await {
+                    Ok((Status::Finalized(_), _balances)) => {
+                        finalize.insert(*id);
+                    }
+                    Ok((new_status, new_balances)) => {
+                        update.insert(*id, (new_status, new_balances));
+                    }
+                    Err(err) => error!(
+                        &self.logger,
+                        "Error getting Campaign ({:?}) status", id; "error" => ?err
+                    ),
+                };
+            }
 
-//             (update, finalize)
-//         };
+            (update, finalize)
+        };
 
-//         self.update(ActiveAction::Update(update), finalize).await;
-//     }
-// }
+        self.update(ActiveAction::Update(update), finalize).await;
+    }
+}
 
 async fn collect_all_campaigns(
     logger: &Logger,
@@ -394,7 +394,7 @@ fn collect_mock_campaigns() -> HashMap<ChannelId, Campaign> {
         balances: Default::default(),
     };
 
-    campaigns.insert(channel.id, campaign);
+    campaigns.insert(campaign.channel.id, campaign);
     campaigns
 }
 

@@ -1,5 +1,5 @@
 use crate::{
-    cache::Campaign, market::AdSlotResponse, not_found, service_unavailable, status::Status, Cache,
+    cache::{Campaign, CacheLike}, market::AdSlotResponse, not_found, service_unavailable, status::Status, Cache,
     Config, Error, MarketApi, ROUTE_UNITS_FOR_SLOT,
 };
 use chrono::Utc;
@@ -16,15 +16,15 @@ use std::sync::Arc;
 use url::{form_urlencoded, Url};
 use woothee::parser::Parser;
 
-// #[cfg(test)]
-// #[path = "units_for_slot_test.rs"]
-// pub mod test;
+#[cfg(test)]
+#[path = "units_for_slot_test.rs"]
+pub mod test;
 
-pub async fn get_units_for_slot(
+pub async fn get_units_for_slot<'a, T: CacheLike<'a>>(
     logger: &Logger,
     market: Arc<MarketApi>,
     config: &Config,
-    cache: &Cache,
+    cache: &'a T,
     req: Request<Body>,
 ) -> Result<Response<Body>, Error> {
     let ipfs = req.uri().path().trim_start_matches(ROUTE_UNITS_FOR_SLOT);
@@ -170,8 +170,8 @@ pub async fn get_units_for_slot(
     }
 }
 
-async fn get_campaigns(
-    cache: &Cache,
+async fn get_campaigns<'a, T: CacheLike<'a>>(
+    cache: &'a T,
     config: &Config,
     deposit_assets: &[String],
     publisher_id: ValidatorId,
