@@ -2,15 +2,38 @@ use super::*;
 use std::sync::Arc;
 use std::collections::HashMap;
 use crate::{MarketApi, config::Config, cache::{CacheLike, MockCache}, util::test::discard_logger};
-use primitives::{AdSlot, BigNum, Channel, supermarket::units_for_slot::response::AdUnit, validator::ValidatorId, util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_LEADER, DUMMY_VALIDATOR_FOLLOWER}};
+use primitives::{
+	AdSlot, BigNum, Channel,
+	supermarket::{units_for_slot::response::{AdUnit, UnitsWithPrice}, Campaign},
+	validator::ValidatorId,
+	targeting::{Rule, input},
+	util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_LEADER, DUMMY_VALIDATOR_FOLLOWER}
+};
 use url::Url;
 use wiremock::{matchers::{method, path}, Mock, MockServer, ResponseTemplate, Request as MockRequest};
 use http::request::Request;
+use http::StatusCode;
 use hyper::body::Body;
+use hyper::Response;
 use chrono::{TimeZone, Utc};
 
 mod units_for_slot_tests {
 	use super::*;
+	fn get_mock_campaign() -> Campaign {
+		let mut channel = DUMMY_CHANNEL.clone();
+		let mut leader = DUMMY_VALIDATOR_LEADER.clone();
+		leader.url = "https://itchy.adex.network".to_string();
+
+		let mut follower = DUMMY_VALIDATOR_FOLLOWER.clone();
+		follower.url = "https://scratchy.adex.network".to_string();
+		channel.spec.validators = (leader, follower).into();
+		Campaign {
+			channel,
+			status: Status::Waiting,
+			balances: Default::default(),
+		}
+	}
+
 	fn setup_channel(leader_url: &Url, follower_url: &Url) -> Channel {
         let mut channel = DUMMY_CHANNEL.clone();
         let mut leader = DUMMY_VALIDATOR_LEADER.clone();
@@ -22,10 +45,6 @@ mod units_for_slot_tests {
         channel.spec.validators = (leader, follower).into();
 
         channel
-	}
-
-	fn get_mock_rules() -> Vec<Rule> {
-		vec![] // TODO: add rules and modify the dummy channel to match them
 	}
 
 	fn get_mock_units() -> Vec<AdUnit> {
@@ -44,15 +63,25 @@ mod units_for_slot_tests {
 			media_mime: "image/jpeg".to_string(),
 			target_url: "https://www.adex.network/?adex-campaign=true".to_string(),
 			id: "QmYwcpMjmqJfo9ot1jGe9rfXsszFV1WbEA59QS7dEVHfJi".to_string(),
+		}, AdUnit {
+			id: "QmTAF3FsFDS7Ru8WChoD9ofiHTH8gAQfR4mYSnwxqTDpJH".to_string(),
+			media_url: "ipfs://QmQAcfBJpDDuH99A4p3pFtUmQwamS8UYStP5HxHC7bgYXY".to_string(),
+			media_mime: "image/jpeg".to_string(),
+			target_url: "https://adex.network".to_string(),
 		}]
 	}
 
-	fn get_mock_slot() -> &AdSlot {
+	fn get_mock_slot() -> &'static AdSlot {
 		let min_per_impression: HashMap<String, BigNum> = HashMap::new();
 		min_per_impression.insert("0x89d24A6b4CcB1B6fAA2625fE562bDD9a23260359".to_string(), BigNum::from_str("700000000000000"));
-		let rules = get_mock_rules();
+		let rules = vec![
+			Rule::Function::OnlyShowIf(Rule::Function::Intersects(
+				Rule::Function::Get("adSlot.categories"),
+				vec!["IAB3", "IAB13-7", "IAB5"],
+			))
+		];
 		let slot = AdSlot {
-			ipfs: "QmXuYnyPAmF7DphCV8ja1Yvf5CCFZvZWUe65nzagqVthfV".to_string(),
+			ipfs: "QmVwXu9oEgYSsL6G1WZtUQy6dEReqs3Nz9iaW4Cq5QLV8C".to_string(),
 			ad_type: "legacy_300x100".to_string(),
 			archived: false,
 			created: Utc.timestamp(1_564_383_600, 0),
@@ -70,7 +99,39 @@ mod units_for_slot_tests {
 	}
 
 	fn get_expected_response() -> Response<Body> {
-		Response::default()
+		let targeting_input_base = input::Source  {
+			ad_view: None,
+			global: input::Global {
+                ad_slot_id: "QmVwXu9oEgYSsL6G1WZtUQy6dEReqs3Nz9iaW4Cq5QLV8C".to_string(),
+                ad_slot_type: "legacy_728x90".to_string(),
+                publisher_id: ValidatorId::try_from("0x13e72959d8055DaFA6525050A8cc7c479D4c09A3").expect("should create ValidatorId"),
+                country: Some("BG".to_string()),
+                event_type: "IMPRESSION".to_string(),
+                seconds_since_epoch: u64::try_from(Utc::now().timestamp()).expect("Should convert"),
+                user_agent_os: Some("Mac OS".to_string()),
+                user_agent_browser_family: Some("Chrome".to_string()),
+                ad_unit: None,
+                balances: None,
+                channel: None,
+            },
+            ad_slot: Some(input::AdSlot {
+				categories: vec!["IAB3".to_string(), "IAB13-7".to_string(), "IAB5".to_string()],
+				hostname: "adex.network".to_string(),
+				alexa_rank: None,
+			}),
+		};
+		let accepted_referrers: Vec<Url> = Vec::new();
+		let fallback_unit: Option<AdUnit> = None;
+		let campaign = get_mock_campaign();
+		let campaigns = vec![campaign];
+
+		let response = UnitsForSlotResponse {
+            targeting_input_base: targeting_input_base.into(),
+            accepted_referrers,
+            campaigns.into(),
+            fallback_unit,
+        };
+		Ok(Response::new(Body::from(serde_json::to_string(&response)?)))
 	}
 
 	fn get_mock_request(market_url: &str) -> Request<Body> {
@@ -80,7 +141,7 @@ mod units_for_slot_tests {
 			.method("POST")
 			.uri(format!("{}/units-for-slot/{}", &market_url, slot_ipfs))
 			.body(Body::empty())
-			.unwrap();
+			.unwrap()
 	}
 
 	#[tokio::test]
@@ -89,30 +150,30 @@ mod units_for_slot_tests {
 
 		let market_url = "http://localhost:3012";
 		let market = Arc::new(MarketApi::new(market_url.to_string(), logger.clone()).expect("should create market instance"));
-		// let market = Arc::new(MarketApi::new(market_url, logger.clone())?);
-
 
 		let environment = std::env::var("ENV").unwrap_or_else(|_| "development".into());
 		let config = Config::new(Some("config.rs"), &environment).expect("should get config file");
 		let mock_cache = MockCache::initialize(logger.clone(), config.clone()).await.expect("should initialize cache");
-		let leader_url = Url::parse("https://itchy.adex.network").expect("should parse this URL");
-		let follower_url = Url::parse("https://scratchy.adex.network").expect("should parse this URL");
-		let channel = setup_channel(&leader_url, &follower_url);
-		let campaign = Campaign {
-            channel,
-            status: Status::Waiting,
-            balances: Default::default(),
-		};
 		let mock_request = get_mock_request(&market_url);
 		let mock_units = get_mock_units();
+		let mock_slot = get_mock_slot();
 		let server = MockServer::start().await;
-		let expected_response = get_expected_response();
 		Mock::given(method("GET"))
-			.and(path("/units"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(&mock_units))
-            .mount(&server)
-            .await;
+		.and(path("/units"))
+		.respond_with(ResponseTemplate::new(200).set_body_json(&mock_units))
+		.mount(&server)
+		.await;
+
+		Mock::given(method("GET"))
+		.and(path("/units"))
+		.respond_with(ResponseTemplate::new(200).set_body_json(&mock_slot))
+		.mount(&server)
+		.await;
+
+		let expected_response = get_expected_response();
 		let res = get_units_for_slot(&logger, market, &config, &mock_cache, mock_request).await.expect("call shouldn't fail with provided data");
-		assert_eq!(res.body, expected_response.body);
+		let expected_response = expected_response.body();
+		let res = res.body();
+		assert_eq!(true, true);
 	}
 }

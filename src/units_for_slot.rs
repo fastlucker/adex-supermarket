@@ -176,7 +176,7 @@ async fn get_campaigns<'a, T: CacheLike<'a>>(
     deposit_assets: &[String],
     publisher_id: ValidatorId,
 ) -> Vec<Campaign> {
-    let active_campaigns = cache.active.read().await;
+    let active_campaigns = cache.get_active_campaigns().await;
 
     let (mut campaigns_by_earner, rest_of_campaigns): (Vec<&Campaign>, Vec<&Campaign>) =
         active_campaigns

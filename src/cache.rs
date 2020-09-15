@@ -3,7 +3,7 @@ use crate::{
     Config, SentryApi,
 };
 use futures::future::{join_all, FutureExt};
-use primitives::{BalancesMap, Channel, ChannelId, util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_LEADER, DUMMY_VALIDATOR_FOLLOWER}};
+use primitives::{BalancesMap, BigNum, Channel, ChannelId, util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_LEADER, DUMMY_VALIDATOR_FOLLOWER}};
 use reqwest::Error;
 use slog::{error, info, Logger};
 use std::collections::{HashMap, HashSet};
@@ -33,6 +33,7 @@ pub trait CacheLike<'a>: core::fmt::Debug + Clone {
     async fn fetch_new_campaigns(&self);
     async fn update(&self, new_active: ActiveAction, new_finalized: FinalizedCache);
     async fn fetch_campaign_updates(&self);
+    async fn get_active_campaigns(&self);
 }
 
 #[derive(Debug, Clone)]
@@ -195,6 +196,10 @@ impl<'a> CacheLike<'a> for Cache {
 
         self.update(ActiveAction::Update(update), finalize).await;
     }
+
+    async fn get_active_campaigns(&self) -> Cached<ActiveCache> {
+        self.active.read().await
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -335,6 +340,10 @@ impl<'a> CacheLike<'a> for MockCache {
 
         self.update(ActiveAction::Update(update), finalize).await;
     }
+
+    async fn get_active_campaigns(&self) -> Cached<ActiveCache> {
+        self.active.read().await
+    }
 }
 
 async fn collect_all_campaigns(
@@ -378,6 +387,7 @@ async fn collect_all_campaigns(
 
     campaigns
 }
+
 
 fn collect_mock_campaigns() -> HashMap<ChannelId, Campaign> {
     let mut campaigns = HashMap::new();
