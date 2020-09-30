@@ -6,7 +6,7 @@ use primitives::{
 	AdSlot, BigNum, Channel,
 	supermarket::{units_for_slot::response::{AdUnit, UnitsWithPrice}, Campaign},
 	validator::ValidatorId,
-	targeting::{Rule, input, Function},
+	targeting::{Rule, input, Function, Value},
 	util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_LEADER, DUMMY_VALIDATOR_FOLLOWER}
 };
 use url::Url;
@@ -75,8 +75,9 @@ mod units_for_slot_tests {
 		let min_per_impression: HashMap<String, BigNum> = HashMap::new();
 		min_per_impression.insert("0x89d24A6b4CcB1B6fAA2625fE562bDD9a23260359".to_string(), BigNum::from_str("700000000000000"));
 		let get_rule = Rule::Function(Function::Get("adSlot.categories".to_string()));
-		let intersects_rule = Rule::Function(Function::Intersects(get_rule, vec!["IAB3", "IAB13-7", "IAB5"]));
-		let only_show_if_rule = Rule::Function(Function::OnlyShowIf(intersects_rule));
+		let categories_array = Rule::Value(Value::Array(vec![Value::String("IAB3".to_string()), Value::String("IAB13-7".to_string()), Value::String("IAB5".to_string())]));
+		let intersects_rule = Rule::Function(Function::Intersects(Box::new(get_rule), Box::new(categories_array)));
+		let only_show_if_rule = Rule::Function(Function::OnlyShowIf(Box::new(intersects_rule)));
 		let rules = vec![only_show_if_rule];
 
 		let slot = AdSlot {
