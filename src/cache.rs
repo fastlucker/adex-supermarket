@@ -342,7 +342,7 @@ impl<'a> CacheLike<'a> for MockCache {
     }
 
     async fn get_active_campaigns(&self) -> Cached<ActiveCache> {
-        self.active.read().await
+        self.active.read()
     }
 }
 

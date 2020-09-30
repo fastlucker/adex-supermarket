@@ -6,7 +6,7 @@ use primitives::{
 	AdSlot, BigNum, Channel,
 	supermarket::{units_for_slot::response::{AdUnit, UnitsWithPrice}, Campaign},
 	validator::ValidatorId,
-	targeting::{Rule, input},
+	targeting::{Rule, input, Function},
 	util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_LEADER, DUMMY_VALIDATOR_FOLLOWER}
 };
 use url::Url;
@@ -74,12 +74,11 @@ mod units_for_slot_tests {
 	fn get_mock_slot() -> &'static AdSlot {
 		let min_per_impression: HashMap<String, BigNum> = HashMap::new();
 		min_per_impression.insert("0x89d24A6b4CcB1B6fAA2625fE562bDD9a23260359".to_string(), BigNum::from_str("700000000000000"));
-		let rules = vec![
-			Rule::Function::OnlyShowIf(Rule::Function::Intersects(
-				Rule::Function::Get("adSlot.categories"),
-				vec!["IAB3", "IAB13-7", "IAB5"],
-			))
-		];
+		let get_rule = Rule::Function(Function::Get("adSlot.categories".to_string()));
+		let intersects_rule = Rule::Function(Function::Intersects(get_rule, vec!["IAB3", "IAB13-7", "IAB5"]));
+		let only_show_if_rule = Rule::Function(Function::OnlyShowIf(intersects_rule));
+		let rules = vec![only_show_if_rule];
+
 		let slot = AdSlot {
 			ipfs: "QmVwXu9oEgYSsL6G1WZtUQy6dEReqs3Nz9iaW4Cq5QLV8C".to_string(),
 			ad_type: "legacy_300x100".to_string(),
@@ -128,7 +127,7 @@ mod units_for_slot_tests {
 		let response = UnitsForSlotResponse {
             targeting_input_base: targeting_input_base.into(),
             accepted_referrers,
-            campaigns.into(),
+            campaigns: campaigns.into(),
             fallback_unit,
         };
 		Ok(Response::new(Body::from(serde_json::to_string(&response)?)))
