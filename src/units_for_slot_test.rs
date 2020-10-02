@@ -4,10 +4,11 @@ use std::collections::HashMap;
 use crate::{MarketApi, config::Config, cache::{CacheLike, MockCache}, util::test::discard_logger};
 use primitives::{
 	AdSlot, BigNum, Channel,
-	supermarket::{units_for_slot::response::{AdUnit, UnitsWithPrice}, Campaign},
+	supermarket::{units_for_slot::response::{AdUnit, UnitsWithPrice, Campaign as ResponseCampaign}, Campaign},
 	validator::ValidatorId,
 	targeting::{Rule, input, Function, Value},
-	util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_LEADER, DUMMY_VALIDATOR_FOLLOWER}
+	util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_LEADER, DUMMY_VALIDATOR_FOLLOWER},
+	IPFS,
 };
 use url::Url;
 use wiremock::{matchers::{method, path}, Mock, MockServer, ResponseTemplate, Request as MockRequest};
@@ -49,22 +50,22 @@ mod units_for_slot_tests {
 
 	fn get_mock_units() -> Vec<AdUnit> {
 		vec![ AdUnit {
-			id: "Qmasg8FrbuSQpjFu3kRnZF9beg8rEBFrqgi1uXDRwCbX5f".to_string(),
+			id: IPFS::try_from("Qmasg8FrbuSQpjFu3kRnZF9beg8rEBFrqgi1uXDRwCbX5f"),
 			media_url: "ipfs://QmcUVX7fvoLMM93uN2bD3wGTH8MXSxeL8hojYfL2Lhp7mR".to_string(),
 			media_mime: "image/jpeg".to_string(),
 			target_url: "https://www.adex.network/?stremio-test-banner-1".to_string(),
 		}, AdUnit {
-			id: "QmVhRDGXoM3Fg3HZD5xwMuxtb9ZErwC8wHt8CjsfxaiUbZ".to_string(),
+			id: IPFS::try_from("QmVhRDGXoM3Fg3HZD5xwMuxtb9ZErwC8wHt8CjsfxaiUbZ"),
 			media_url: "ipfs://QmQB7uz7Gxfy7wqAnrnBcZFaVJLos8J9gn8mRcHQU6dAi1".to_string(),
 			media_mime: "image/jpeg".to_string(),
 			target_url: "https://www.adex.network/?adex-campaign=true&pub=stremio".to_string(),
 		}, AdUnit {
-			media_url: "ipfs://QmQB7uz7Gxfy7wqAnrnBcZFaVJLos8J9gn8mRcHQU6dAi1".to_string(),
+			media_url: IPFS::try_from("ipfs://QmQB7uz7Gxfy7wqAnrnBcZFaVJLos8J9gn8mRcHQU6dAi1"),
 			media_mime: "image/jpeg".to_string(),
 			target_url: "https://www.adex.network/?adex-campaign=true".to_string(),
 			id: "QmYwcpMjmqJfo9ot1jGe9rfXsszFV1WbEA59QS7dEVHfJi".to_string(),
 		}, AdUnit {
-			id: "QmTAF3FsFDS7Ru8WChoD9ofiHTH8gAQfR4mYSnwxqTDpJH".to_string(),
+			id: IPFS::try_from("QmTAF3FsFDS7Ru8WChoD9ofiHTH8gAQfR4mYSnwxqTDpJH"),
 			media_url: "ipfs://QmQAcfBJpDDuH99A4p3pFtUmQwamS8UYStP5HxHC7bgYXY".to_string(),
 			media_mime: "image/jpeg".to_string(),
 			target_url: "https://adex.network".to_string(),

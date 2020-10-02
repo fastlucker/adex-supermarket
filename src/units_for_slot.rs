@@ -9,6 +9,7 @@ use primitives::{
     supermarket::units_for_slot::response::{AdUnit, Response as UnitsForSlotResponse},
     targeting::{get_pricing_bounds, input, Error as EvalError, Output, Rule},
     ValidatorId,
+    IPFS,
 };
 use slog::{error, info, Logger};
 use std::convert::TryFrom;
@@ -55,7 +56,7 @@ pub async fn get_units_for_slot<'a, T: CacheLike<'a>>(
         // @TODO: Handle error with units retrieval
         let units = market.fetch_units(&ad_slot_response.slot).await?;
         let accepted_referrers = ad_slot_response.accepted_referrers.clone();
-        let units_ipfses: Vec<&str> = units.iter().map(|au| au.id.as_str()).collect();
+        let units_ipfses: Vec<String> = units.iter().map(|au| au.id.to_string().into()).collect();
         let fallback_unit: Option<AdUnit> = match ad_slot_response.slot.fallback_unit.as_ref() {
             Some(unit_ipfs) => {
                 let ad_unit_response = match market.fetch_unit(&unit_ipfs).await? {
