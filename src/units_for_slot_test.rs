@@ -50,22 +50,22 @@ mod units_for_slot_tests {
 
 	fn get_mock_units() -> Vec<AdUnit> {
 		vec![ AdUnit {
-			id: IPFS::try_from("Qmasg8FrbuSQpjFu3kRnZF9beg8rEBFrqgi1uXDRwCbX5f"),
+			id: IPFS::try_from("Qmasg8FrbuSQpjFu3kRnZF9beg8rEBFrqgi1uXDRwCbX5f").expect("should convert"),
 			media_url: "ipfs://QmcUVX7fvoLMM93uN2bD3wGTH8MXSxeL8hojYfL2Lhp7mR".to_string(),
 			media_mime: "image/jpeg".to_string(),
 			target_url: "https://www.adex.network/?stremio-test-banner-1".to_string(),
 		}, AdUnit {
-			id: IPFS::try_from("QmVhRDGXoM3Fg3HZD5xwMuxtb9ZErwC8wHt8CjsfxaiUbZ"),
+			id: IPFS::try_from("QmVhRDGXoM3Fg3HZD5xwMuxtb9ZErwC8wHt8CjsfxaiUbZ").expect("should convert"),
 			media_url: "ipfs://QmQB7uz7Gxfy7wqAnrnBcZFaVJLos8J9gn8mRcHQU6dAi1".to_string(),
 			media_mime: "image/jpeg".to_string(),
 			target_url: "https://www.adex.network/?adex-campaign=true&pub=stremio".to_string(),
 		}, AdUnit {
-			media_url: IPFS::try_from("ipfs://QmQB7uz7Gxfy7wqAnrnBcZFaVJLos8J9gn8mRcHQU6dAi1"),
+			id: IPFS::try_from("QmYwcpMjmqJfo9ot1jGe9rfXsszFV1WbEA59QS7dEVHfJi").expect("should convert"),
+			media_url: "ipfs://QmQB7uz7Gxfy7wqAnrnBcZFaVJLos8J9gn8mRcHQU6dAi1".to_string(),
 			media_mime: "image/jpeg".to_string(),
 			target_url: "https://www.adex.network/?adex-campaign=true".to_string(),
-			id: "QmYwcpMjmqJfo9ot1jGe9rfXsszFV1WbEA59QS7dEVHfJi".to_string(),
 		}, AdUnit {
-			id: IPFS::try_from("QmTAF3FsFDS7Ru8WChoD9ofiHTH8gAQfR4mYSnwxqTDpJH"),
+			id: IPFS::try_from("QmTAF3FsFDS7Ru8WChoD9ofiHTH8gAQfR4mYSnwxqTDpJH").expect("should convert"),
 			media_url: "ipfs://QmQAcfBJpDDuH99A4p3pFtUmQwamS8UYStP5HxHC7bgYXY".to_string(),
 			media_mime: "image/jpeg".to_string(),
 			target_url: "https://adex.network".to_string(),
@@ -129,10 +129,10 @@ mod units_for_slot_tests {
 		let response = UnitsForSlotResponse {
             targeting_input_base: targeting_input_base.into(),
             accepted_referrers,
-            campaigns: campaigns.into(),
+            campaigns,
             fallback_unit,
         };
-		Ok(Response::new(Body::from(serde_json::to_string(&response)?)))
+		Response::new(Body::from(serde_json::to_string(&response)))
 	}
 
 	fn get_mock_request(market_url: &str) -> Request<Body> {
