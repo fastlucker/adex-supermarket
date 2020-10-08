@@ -6,9 +6,9 @@ use std::fmt;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use crate::cache::CacheLike;
 use http::{StatusCode, Uri};
 use slog::{error, info, Logger};
-use crate::cache::CacheLike;
 
 pub mod cache;
 pub mod config;

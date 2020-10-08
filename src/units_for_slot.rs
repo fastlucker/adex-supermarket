@@ -1,5 +1,8 @@
 use crate::{
-    cache::{Campaign, CacheLike}, market::AdSlotResponse, not_found, service_unavailable, status::Status, Cache,
+    cache::{CacheLike, Campaign},
+    market::AdSlotResponse,
+    not_found, service_unavailable,
+    status::Status,
     Config, Error, MarketApi, ROUTE_UNITS_FOR_SLOT,
 };
 use chrono::Utc;
@@ -9,7 +12,6 @@ use primitives::{
     supermarket::units_for_slot::response::{AdUnit, Response as UnitsForSlotResponse},
     targeting::{get_pricing_bounds, input, Error as EvalError, Output, Rule},
     ValidatorId,
-    IPFS,
 };
 use slog::{error, info, Logger};
 use std::convert::TryFrom;
@@ -56,7 +58,7 @@ pub async fn get_units_for_slot<'a, T: CacheLike<'a>>(
         // @TODO: Handle error with units retrieval
         let units = market.fetch_units(&ad_slot_response.slot).await?;
         let accepted_referrers = ad_slot_response.accepted_referrers.clone();
-        let units_ipfses: Vec<String> = units.iter().map(|au| au.id.to_string().into()).collect();
+        let units_ipfses: Vec<String> = units.iter().map(|au| au.id.to_string()).collect();
         let fallback_unit: Option<AdUnit> = match ad_slot_response.slot.fallback_unit.as_ref() {
             Some(unit_ipfs) => {
                 let ad_unit_response = match market.fetch_unit(&unit_ipfs).await? {
@@ -177,7 +179,7 @@ async fn get_campaigns<'a, T: CacheLike<'a>>(
     deposit_assets: &[String],
     publisher_id: ValidatorId,
 ) -> Vec<Campaign> {
-    let active_campaigns = cache.get_active_campaigns();
+    let active_campaigns = cache.get_active_campaigns().await;
 
     let (mut campaigns_by_earner, rest_of_campaigns): (Vec<&Campaign>, Vec<&Campaign>) =
         active_campaigns

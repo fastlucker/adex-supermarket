@@ -2,15 +2,18 @@ use crate::{
     status::{get_status, Status},
     Config, SentryApi,
 };
+use async_trait::async_trait;
 use futures::future::{join_all, FutureExt};
-use primitives::{BalancesMap, BigNum, Channel, ChannelId, util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_LEADER, DUMMY_VALIDATOR_FOLLOWER}};
+use primitives::{
+    util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_FOLLOWER, DUMMY_VALIDATOR_LEADER},
+    BalancesMap, Channel, ChannelId,
+};
 use reqwest::Error;
 use slog::{error, info, Logger};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use url::Url;
-use async_trait::async_trait;
 
 // Re-export the Campaign
 pub use primitives::supermarket::Campaign;
@@ -29,11 +32,13 @@ pub enum ActiveAction {
 
 #[async_trait]
 pub trait CacheLike<'a>: core::fmt::Debug + Clone {
-    async fn initialize(logger: Logger, config: Config) -> Result<Self, Error> where Self: Sized;
+    async fn initialize(logger: Logger, config: Config) -> Result<Self, Error>
+    where
+        Self: Sized;
     async fn fetch_new_campaigns(&self);
     async fn update(&self, new_active: ActiveAction, new_finalized: FinalizedCache);
     async fn fetch_campaign_updates(&self);
-    async fn get_active_campaigns(&self);
+    async fn get_active_campaigns(&self) -> HashMap<ChannelId, Campaign>;
 }
 
 #[derive(Debug, Clone)]
@@ -197,8 +202,16 @@ impl<'a> CacheLike<'a> for Cache {
         self.update(ActiveAction::Update(update), finalize).await;
     }
 
-    async fn get_active_campaigns(&self) -> Cached<ActiveCache> {
-        self.active.read().await
+    async fn get_active_campaigns(&self) -> HashMap<ChannelId, Campaign> {
+        // Needed to access the campaigns from RwLock
+        {
+            let read_campaigns = self.active.read().await;
+            let mut active = HashMap::new();
+            for (id, campaign) in read_campaigns.iter() {
+                active.insert(*id, campaign.clone());
+            }
+            active
+        }
     }
 }
 
@@ -341,8 +354,16 @@ impl<'a> CacheLike<'a> for MockCache {
         self.update(ActiveAction::Update(update), finalize).await;
     }
 
-    async fn get_active_campaigns(&self) -> Cached<ActiveCache> {
-        self.active.read()
+    async fn get_active_campaigns(&self) -> HashMap<ChannelId, Campaign> {
+        // Needed to access the campaigns from RwLock
+        {
+            let read_campaigns = self.active.read().await;
+            let mut active = HashMap::new();
+            for (id, campaign) in read_campaigns.iter() {
+                active.insert(*id, campaign.clone());
+            }
+            active
+        }
     }
 }
 
@@ -387,7 +408,6 @@ async fn collect_all_campaigns(
 
     campaigns
 }
-
 
 fn collect_mock_campaigns() -> HashMap<ChannelId, Campaign> {
     let mut campaigns = HashMap::new();
