@@ -26,8 +26,6 @@ use wiremock::{
     matchers::{method, path},
     Mock, MockServer, ResponseTemplate,
 };
-// use futures_util::stream::TryStreamExt;
-use futures::TryStreamExt;
 use std::iter::Iterator;
 
 mod units_for_slot_tests {
@@ -214,6 +212,13 @@ mod units_for_slot_tests {
             .unwrap()
     }
 
+    fn deserialize_response(res: Response<Body>) -> serde_json::Result<UnitsForSlotResponse> {
+        let body = res.into_body().concat2().wait().unwrap().into_bytes();
+        let units: UnitsForSlotResponse = serde_json::from_slice(&body).unwrap();
+
+        Ok(units)
+    }
+
     #[tokio::test]
     async fn test_units_for_slot_route() {
         let logger = discard_logger();
@@ -246,25 +251,14 @@ mod units_for_slot_tests {
             .await;
         let rules = get_mock_rules();
         let expected_response = get_expected_response(rules);
+
+
         let res = get_units_for_slot(&logger, market, &config, &mock_cache, mock_request)
             .await
             .expect("call shouldn't fail with provided data");
-        let expected_response = expected_response
-            .into_body()
-            .try_fold(Vec::new(), |mut data, chunk| async move {
-                data.extend_from_slice(&chunk);
-                Ok(data)
-            })
-            .await
-            .expect("should get body");
-        let res = res
-            .into_body()
-            .try_fold(Vec::new(), |mut data, chunk| async move {
-                data.extend_from_slice(&chunk);
-                Ok(data)
-            })
-            .await
-            .expect("should get body");
-        assert_eq!(expected_response.len(), res.len());
+        let res = deserialize_response(res).expect("should deserialize");
+        let expected_response = deserialize_response(expected_response).expect("should deserialize");
+
+        assert_eq!(expected_response.campaigns.len(), res.campaigns.len());
     }
 }
