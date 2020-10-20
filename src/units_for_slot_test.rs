@@ -19,6 +19,7 @@ use primitives::{
     AdSlot, BigNum, IPFS,
 };
 use std::collections::HashMap;
+use std::iter::Iterator;
 use std::str::FromStr;
 use std::sync::Arc;
 use url::Url;
@@ -26,8 +27,6 @@ use wiremock::{
     matchers::{method, path},
     Mock, MockServer, ResponseTemplate,
 };
-use futures::stream::StreamExt; // for next()
-use std::iter::Iterator;
 
 mod units_for_slot_tests {
     use super::*;
@@ -134,7 +133,7 @@ mod units_for_slot_tests {
         vec![only_show_if_rule]
     }
 
-    fn get_mock_slot() -> AdSlot {
+    fn get_mock_slot() -> AdSlotResponse {
         let mut min_per_impression: HashMap<String, BigNum> = HashMap::new();
         min_per_impression.insert(
             "0x89d24A6b4CcB1B6fAA2625fE562bDD9a23260359".to_string(),
@@ -142,7 +141,7 @@ mod units_for_slot_tests {
         );
         let rules = get_mock_rules();
 
-        AdSlot {
+        let ad_slot = AdSlot {
             ipfs: "QmVwXu9oEgYSsL6G1WZtUQy6dEReqs3Nz9iaW4Cq5QLV8C".to_string(),
             ad_type: "legacy_300x100".to_string(),
             archived: false,
@@ -156,10 +155,18 @@ mod units_for_slot_tests {
             title: Some("Test slot".to_string()),
             website: Some("https://adex.network".to_string()),
             rules,
+        };
+
+
+        AdSlotResponse {
+            slot: ad_slot,
+            accepted_referrers: Default::default(),
+            categories: Default::default(),
+            alexa_rank: Some(1.0),
         }
     }
 
-    fn get_expected_response(rules: Vec<Rule>) -> Response<Body> {
+    fn get_expected_response(rules: Vec<Rule>) -> UnitsForSlotResponse {
         let targeting_input_base = input::Source {
             ad_view: None,
             global: input::Global {
@@ -192,77 +199,59 @@ mod units_for_slot_tests {
         let campaign = get_mock_campaign(rules, units_with_price);
         let campaigns = vec![campaign];
 
-        let response = UnitsForSlotResponse {
+        UnitsForSlotResponse {
             targeting_input_base: targeting_input_base.into(),
             accepted_referrers,
             campaigns,
             fallback_unit,
-        };
-        Response::new(Body::from(
-            serde_json::to_string(&response).expect("should convert"),
-        ))
-    }
-
-    fn get_mock_request(market_url: &str) -> Request<Body> {
-        let mock_slot = get_mock_slot();
-        let slot_ipfs = &mock_slot.ipfs;
-        Request::builder()
-            .method("POST")
-            .uri(format!("{}/units-for-slot/{}", &market_url, slot_ipfs))
-            .body(Body::empty())
-            .unwrap()
-    }
-
-    async fn deserialize_response(res: Response<Body>) -> serde_json::Result<UnitsForSlotResponse> {
-        let mut body = res.into_body();
-        let mut data = Vec::new();
-        while let Some(chunk) = body.next().await {
-            data.extend(&chunk.expect("should access a chunk"));
         }
-        let parsed: UnitsForSlotResponse = serde_json::from_slice(&data).expect("should parse data");
-        Ok(parsed)
     }
 
     #[tokio::test]
     async fn test_units_for_slot_route() {
         let logger = discard_logger();
 
-        let market_url = "http://localhost:3012";
+        let server = MockServer::start().await;
+
         let market = Arc::new(
-            MarketApi::new(market_url.to_string(), logger.clone())
+            MarketApi::new(server.uri().trim_end_matches('/').to_string(), logger.clone())
                 .expect("should create market instance"),
         );
 
-        // let environment = std::env::var("ENV").unwrap_or_else(|_| "development".into());
         let config = Config::new(None, "development").expect("should get config");
         let mock_cache = MockCache::initialize(logger.clone(), config.clone())
             .await
             .expect("should initialize cache");
-        let mock_request = get_mock_request(&market_url);
+
         let mock_units = get_mock_units();
         let mock_slot = get_mock_slot();
-        let server = MockServer::start().await;
+
         Mock::given(method("GET"))
-            .and(path("/units"))
+            .and(path(format!("/units/{}", mock_slot.slot.ipfs)))
             .respond_with(ResponseTemplate::new(200).set_body_json(&mock_units))
             .mount(&server)
             .await;
 
         Mock::given(method("GET"))
-            .and(path("/units"))
+            .and(path(format!("/slots/{}", mock_slot.slot.ipfs)))
             .respond_with(ResponseTemplate::new(200).set_body_json(&mock_slot))
             .mount(&server)
             .await;
         let rules = get_mock_rules();
         let expected_response = get_expected_response(rules);
 
+        let request = Request::get(format!("/units-for-slot/{}", mock_slot.slot.ipfs))
+        .body(Body::empty())
+        .unwrap();
 
-        let res = get_units_for_slot(&logger, market, &config, &mock_cache, mock_request)
-            .await
-            .expect("call shouldn't fail with provided data");
-        let res = deserialize_response(res).await.expect("should deserialize");
-        let expected_response = deserialize_response(expected_response).await.expect("should deserialize");
+        let actual_response = get_units_for_slot(&logger, market, &config, &mock_cache, request)
+        .await
+        .expect("call shouldn't fail with provided data");
 
-        assert_eq!(expected_response.campaigns.len(), res.campaigns.len());
+        assert_eq!(http::StatusCode::OK, actual_response.status());
+
+        let units_for_slot: UnitsForSlotResponse = serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap()).expect("Should deserialize");// ).await.expect("Should concatenate")
+
+        assert_eq!(expected_response.campaigns.len(), units_for_slot.campaigns.len());
     }
 }
