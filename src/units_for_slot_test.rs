@@ -26,6 +26,7 @@ use wiremock::{
     matchers::{method, path},
     Mock, MockServer, ResponseTemplate,
 };
+use futures::stream::StreamExt; // for next()
 use std::iter::Iterator;
 
 mod units_for_slot_tests {
@@ -212,11 +213,14 @@ mod units_for_slot_tests {
             .unwrap()
     }
 
-    fn deserialize_response(res: Response<Body>) -> serde_json::Result<UnitsForSlotResponse> {
-        let body = res.into_body().concat2().wait().unwrap().into_bytes();
-        let units: UnitsForSlotResponse = serde_json::from_slice(&body).unwrap();
-
-        Ok(units)
+    async fn deserialize_response(res: Response<Body>) -> serde_json::Result<UnitsForSlotResponse> {
+        let mut body = res.into_body();
+        let mut data = Vec::new();
+        while let Some(chunk) = body.next().await {
+            data.extend(&chunk.expect("should access a chunk"));
+        }
+        let parsed: UnitsForSlotResponse = serde_json::from_slice(&data).expect("should parse data");
+        Ok(parsed)
     }
 
     #[tokio::test]
@@ -256,8 +260,8 @@ mod units_for_slot_tests {
         let res = get_units_for_slot(&logger, market, &config, &mock_cache, mock_request)
             .await
             .expect("call shouldn't fail with provided data");
-        let res = deserialize_response(res).expect("should deserialize");
-        let expected_response = deserialize_response(expected_response).expect("should deserialize");
+        let res = deserialize_response(res).await.expect("should deserialize");
+        let expected_response = deserialize_response(expected_response).await.expect("should deserialize");
 
         assert_eq!(expected_response.campaigns.len(), res.campaigns.len());
     }
