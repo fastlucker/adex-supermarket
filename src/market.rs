@@ -19,7 +19,7 @@ pub struct MarketApi {
     logger: Logger,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdSlotResponse {
     pub slot: AdSlot,
@@ -28,7 +28,7 @@ pub struct AdSlotResponse {
     pub alexa_rank: Option<f64>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdUnitResponse {
     pub unit: AdUnit,

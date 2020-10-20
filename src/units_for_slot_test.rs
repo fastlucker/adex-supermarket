@@ -7,7 +7,7 @@ use crate::{
 };
 use chrono::{TimeZone, Utc};
 use http::request::Request;
-use hyper::{Body, Response};
+use hyper::Body;
 use primitives::{
     supermarket::units_for_slot::response::{
         AdUnit, Campaign as ResponseCampaign, Channel as ResponseChannel, Spec as ResponseSpec,
@@ -147,7 +147,8 @@ mod units_for_slot_tests {
             archived: false,
             created: Utc.timestamp(1_564_383_600, 0),
             description: Some("test slot".to_string()),
-            fallback_unit: Some("QmTAF3FsFDS7Ru8WChoD9ofiHTH8gAQfR4mYSnwxqTDpJH".to_string()),
+            // fallback_unit: Some("QmTAF3FsFDS7Ru8WChoD9ofiHTH8gAQfR4mYSnwxqTDpJH".to_string()),
+            fallback_unit: None,
             min_per_impression: Some(min_per_impression),
             modified: Some(Utc.timestamp(1_564_383_600, 0)),
             owner: ValidatorId::try_from("0xB7d3F81E857692d13e9D63b232A90F4A1793189E")
@@ -227,7 +228,7 @@ mod units_for_slot_tests {
         let mock_slot = get_mock_slot();
 
         Mock::given(method("GET"))
-            .and(path(format!("/units/{}", mock_slot.slot.ipfs)))
+            .and(path("/units"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&mock_units))
             .mount(&server)
             .await;
@@ -250,7 +251,7 @@ mod units_for_slot_tests {
 
         assert_eq!(http::StatusCode::OK, actual_response.status());
 
-        let units_for_slot: UnitsForSlotResponse = serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap()).expect("Should deserialize");// ).await.expect("Should concatenate")
+        let units_for_slot: UnitsForSlotResponse = serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap()).expect("Should deserialize");
 
         assert_eq!(expected_response.campaigns.len(), units_for_slot.campaigns.len());
     }
