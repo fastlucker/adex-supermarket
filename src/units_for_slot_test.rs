@@ -61,19 +61,6 @@ mod units_for_slot_tests {
         }
     }
 
-    // fn setup_channel(leader_url: &Url, follower_url: &Url) -> Channel {
-    //     let mut channel = DUMMY_CHANNEL.clone();
-    //     let mut leader = DUMMY_VALIDATOR_LEADER.clone();
-    //     leader.url = leader_url.to_string();
-
-    //     let mut follower = DUMMY_VALIDATOR_FOLLOWER.clone();
-    //     follower.url = follower_url.to_string();
-
-    //     channel.spec.validators = (leader, follower).into();
-
-    //     channel
-    // }
-
     fn get_units_with_price() -> Vec<UnitsWithPrice> {
         let units = get_mock_units();
         units
@@ -158,7 +145,6 @@ mod units_for_slot_tests {
             rules,
         };
 
-
         AdSlotResponse {
             slot: ad_slot,
             accepted_referrers: Default::default(),
@@ -215,8 +201,11 @@ mod units_for_slot_tests {
         let server = MockServer::start().await;
 
         let market = Arc::new(
-            MarketApi::new(server.uri().trim_end_matches('/').to_string(), logger.clone())
-                .expect("should create market instance"),
+            MarketApi::new(
+                server.uri().trim_end_matches('/').to_string(),
+                logger.clone(),
+            )
+            .expect("should create market instance"),
         );
 
         let config = Config::new(None, "development").expect("should get config");
@@ -241,18 +230,26 @@ mod units_for_slot_tests {
         let rules = get_mock_rules();
         let expected_response = get_expected_response(rules);
 
-        let request = Request::get(format!("/units-for-slot/{}", mock_slot.slot.ipfs))
+        let request = Request::get(format!(
+            "/units-for-slot/{}?depositAsset=0x89d24A6b4CcB1B6fAA2625fE562bDD9a23260359",
+            mock_slot.slot.ipfs
+        ))
         .body(Body::empty())
         .unwrap();
 
         let actual_response = get_units_for_slot(&logger, market, &config, &mock_cache, request)
-        .await
-        .expect("call shouldn't fail with provided data");
+            .await
+            .expect("call shouldn't fail with provided data");
 
         assert_eq!(http::StatusCode::OK, actual_response.status());
 
-        let units_for_slot: UnitsForSlotResponse = serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap()).expect("Should deserialize");
+        let units_for_slot: UnitsForSlotResponse =
+            serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap())
+                .expect("Should deserialize");
 
-        assert_eq!(expected_response.campaigns.len(), units_for_slot.campaigns.len());
+        assert_eq!(
+            expected_response.campaigns.len(),
+            units_for_slot.campaigns.len()
+        );
     }
 }
