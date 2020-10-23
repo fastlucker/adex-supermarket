@@ -70,9 +70,16 @@ impl MarketApi {
     pub async fn fetch_unit(&self, ipfs: &str) -> Result<Option<AdUnitResponse>> {
         let url = format!("{}/units/{}", self.market_url, ipfs);
 
-        let response = self.client.get(&url).send().await?;
-        let ad_unit_response = response.json::<AdUnitResponse>().await?;
-        Ok(Some(ad_unit_response))
+        match self.client.get(&url).send().await?.error_for_status() {
+            Ok(response) => {
+                let ad_unit_response = response.json::<AdUnitResponse>().await?;
+
+                Ok(Some(ad_unit_response))
+            }
+            // if we have a `404 Not Found` error, return None
+            Err(err) if err.status() == Some(StatusCode::NOT_FOUND) => Ok(None),
+            Err(err) => Err(err),
+        }
     }
 
     pub async fn fetch_units(&self, ad_slot: &AdSlot) -> Result<Vec<AdUnit>> {
