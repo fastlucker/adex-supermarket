@@ -1,8 +1,8 @@
 use super::*;
 use crate::{
-    cache::{CacheLike, MockCache},
+    cache::{CacheLike},
     config::Config,
-    util::test::discard_logger,
+    util::test::{discard_logger, cache::MockCache},
     MarketApi,
 };
 use chrono::{TimeZone, Utc};
