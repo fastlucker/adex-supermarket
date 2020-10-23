@@ -1456,7 +1456,7 @@ checksum = "74490b50b9fbe561ac330df47c08f3f33073d2d00c150f719147d7c54522fa1b"
 [[package]]
 name = "primitives"
 version = "0.1.0"
-source = "git+https://github.com/AdExNetwork/adex-validator-stack-rust?branch=aip-31-remove-obsolete-fields#a55636ee0f4c847da1c55f234913e27aeebf702a"
+source = "git+https://github.com/AdExNetwork/adex-validator-stack-rust?branch=aip-31-remove-obsolete-fields#72059fa07e7397e74a01d569350cd49532593505"
 dependencies = [
  "async-trait",
  "chrono",

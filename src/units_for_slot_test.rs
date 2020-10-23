@@ -1,9 +1,9 @@
 use super::*;
 use crate::{
-    cache::{CacheLike},
     config::Config,
-    util::test::{discard_logger, cache::MockCache},
+    util::test::discard_logger,
     MarketApi,
+    cache::mock_client::MockClient,
 };
 use chrono::{TimeZone, Utc};
 use http::request::Request;
@@ -14,7 +14,7 @@ use primitives::{
         UnitsWithPrice,
     },
     targeting::{input, Function, Rule, Value},
-    util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_FOLLOWER, DUMMY_VALIDATOR_LEADER},
+    util::tests::prep_db::{DUMMY_CHANNEL, IDS},
     validator::ValidatorId,
     AdSlot, BigNum, IPFS,
 };
@@ -34,13 +34,7 @@ mod units_for_slot_tests {
         targeting_rules: Vec<Rule>,
         units_with_price: Vec<UnitsWithPrice>,
     ) -> ResponseCampaign {
-        let mut channel = DUMMY_CHANNEL.clone();
-        let mut leader = DUMMY_VALIDATOR_LEADER.clone();
-        leader.url = "https://itchy.adex.network".to_string();
-
-        let mut follower = DUMMY_VALIDATOR_FOLLOWER.clone();
-        follower.url = "https://scratchy.adex.network".to_string();
-        channel.spec.validators = (leader, follower).into();
+        let channel = DUMMY_CHANNEL.clone();
 
         let response_channel = ResponseChannel {
             id: channel.id,
@@ -159,8 +153,7 @@ mod units_for_slot_tests {
             global: input::Global {
                 ad_slot_id: "QmVwXu9oEgYSsL6G1WZtUQy6dEReqs3Nz9iaW4Cq5QLV8C".to_string(),
                 ad_slot_type: "legacy_728x90".to_string(),
-                publisher_id: ValidatorId::try_from("0x13e72959d8055DaFA6525050A8cc7c479D4c09A3")
-                    .expect("should create ValidatorId"),
+                publisher_id: IDS["publisher"],
                 country: Some("BG".to_string()),
                 event_type: "IMPRESSION".to_string(),
                 seconds_since_epoch: u64::try_from(Utc::now().timestamp()).expect("Should convert"),
@@ -209,9 +202,11 @@ mod units_for_slot_tests {
         );
 
         let config = Config::new(None, "development").expect("should get config");
-        let mock_cache = MockCache::initialize(logger.clone(), config.clone())
+        let mock_client = MockClient::init(logger.clone(), config.clone())
             .await
             .expect("should initialize cache");
+        let mock_cache = Cache::initialize(mock_client)
+            .await;
 
         let mock_units = get_mock_units();
         let mock_slot = get_mock_slot();
@@ -247,9 +242,10 @@ mod units_for_slot_tests {
             serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap())
                 .expect("Should deserialize");
 
-        assert_eq!(
-            expected_response.campaigns.len(),
-            units_for_slot.campaigns.len()
-        );
+        dbg!(&expected_response.targeting_input_base, &units_for_slot.targeting_input_base);
+        assert_eq!(expected_response.targeting_input_base, units_for_slot.targeting_input_base);
+        assert_eq!(expected_response.campaigns.len(), units_for_slot.campaigns.len());
+        assert_eq!(expected_response.campaigns, units_for_slot.campaigns);
+        assert_eq!(expected_response.fallback_unit, units_for_slot.fallback_unit);
     }
 }

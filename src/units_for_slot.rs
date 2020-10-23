@@ -1,5 +1,5 @@
 use crate::{
-    cache::{CacheLike, Campaign},
+    cache::{Cache, Campaign, Client},
     market::AdSlotResponse,
     not_found, service_unavailable,
     status::Status,
@@ -24,11 +24,11 @@ use woothee::parser::Parser;
 #[path = "units_for_slot_test.rs"]
 pub mod test;
 
-pub async fn get_units_for_slot<'a, T: CacheLike<'a>>(
+pub async fn get_units_for_slot<C: Client>(
     logger: &Logger,
     market: Arc<MarketApi>,
     config: &Config,
-    cache: &'a T,
+    cache: &Cache<C>,
     req: Request<Body>,
 ) -> Result<Response<Body>, Error> {
     let ipfs = req.uri().path().trim_start_matches(ROUTE_UNITS_FOR_SLOT);
@@ -183,13 +183,13 @@ pub async fn get_units_for_slot<'a, T: CacheLike<'a>>(
     }
 }
 
-async fn get_campaigns<'a, T: CacheLike<'a>>(
-    cache: &'a T,
+async fn get_campaigns<C: Client>(
+    cache: &Cache<C>,
     config: &Config,
     deposit_assets: &[String],
     publisher_id: ValidatorId,
 ) -> Vec<Campaign> {
-    let active_campaigns = cache.get_active_campaigns().await;
+    let active_campaigns = cache.active.read().await;
 
     let (mut campaigns_by_earner, rest_of_campaigns): (Vec<&Campaign>, Vec<&Campaign>) =
         active_campaigns
