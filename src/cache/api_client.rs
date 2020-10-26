@@ -26,10 +26,8 @@ impl ApiClient {
         );
         let sentry = SentryApi::new(config.timeouts.validator_request)?;
 
-        let validators = config.validators.clone();
-
         Ok(Self {
-            validators,
+            validators: config.validators,
             logger,
             sentry,
         })
