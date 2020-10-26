@@ -22,24 +22,22 @@ pub(crate) type Cached<T> = Arc<RwLock<T>>;
 pub type ActiveCache = HashMap<ChannelId, Campaign>;
 pub type FinalizedCache = HashSet<ChannelId>;
 
+#[derive(Debug)]
 pub enum ActiveAction {
     /// Update exiting Campaigns in the Cache
     Update(HashMap<ChannelId, (Status, BalancesMap)>),
     /// Add new and/or replace (if Campaign exist already) Campaigns to the Cache
     New(ActiveCache),
 }
-
-
-
-    #[async_trait]
-    pub trait Client: core::fmt::Debug + Clone {
-        fn logger(&self) -> Logger;
-        async fn collect_campaigns(&self) -> HashMap<ChannelId, Campaign>;
-        async fn fetch_campaign_updates(
-            &self,
-            active: &ActiveCache,
-        ) -> (ActiveAction, FinalizedCache);
-    }
+#[async_trait]
+pub trait Client: core::fmt::Debug + Clone {
+    fn logger(&self) -> Logger;
+    async fn collect_campaigns(&self) -> HashMap<ChannelId, Campaign>;
+    async fn fetch_campaign_updates(
+        &self,
+        active: &ActiveCache,
+    ) -> (HashMap<ChannelId, (Status, BalancesMap)>, FinalizedCache);
+}
 
 #[derive(Debug, Clone)]
 pub struct Cache<C: Client> {
@@ -49,7 +47,10 @@ pub struct Cache<C: Client> {
     logger: Logger,
 }
 
-impl<C> Cache<C> where C: Client {
+impl<C> Cache<C>
+where
+    C: Client,
+{
     /// Fetches all the campaigns from the Validators on initialization.
     pub async fn initialize(client: C) -> Self {
         let logger = client.logger().clone();
@@ -166,12 +167,12 @@ impl<C> Cache<C> where C: Client {
     /// Other statuses:
     /// - Update the Status & Balances from the latest Leader NewState
     pub async fn fetch_campaign_updates(&self) {
-        let (active_action, finalized) = self
+        let (active, finalized) = self
             .client
             .fetch_campaign_updates(&*self.active.read().await)
             .await;
 
-        self.update(active_action, finalized).await
+        self.update(ActiveAction::Update(active), finalized).await
     }
 }
 
@@ -179,14 +180,22 @@ impl<C> Cache<C> where C: Client {
 mod test {
     use super::*;
 
-    use crate::{SentryApi, status::test::{get_approve_state_msg, get_heartbeat_msg, get_new_state_msg}};
     use crate::{config::DEVELOPMENT, util::test::discard_logger};
+    use crate::{
+        status::test::{get_approve_state_msg, get_heartbeat_msg, get_new_state_msg},
+        SentryApi,
+    };
     use chrono::{Duration, Utc};
-    use primitives::{Channel, sentry::{
+    use primitives::{
+        sentry::{
             ChannelListResponse, LastApproved, LastApprovedResponse, NewStateValidatorMessage,
             ValidatorMessage, ValidatorMessageResponse,
-        }, util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_FOLLOWER, DUMMY_VALIDATOR_LEADER}, validator::{MessageTypes, NewState}};
-        use reqwest::Url;
+        },
+        util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_FOLLOWER, DUMMY_VALIDATOR_LEADER},
+        validator::{MessageTypes, NewState},
+        Channel,
+    };
+    use reqwest::Url;
     use wiremock::{
         matchers::{method, path, query_param},
         Mock, MockServer, ResponseTemplate,
@@ -336,7 +345,6 @@ mod test {
             .expect(2_u64)
             .mount(&mock_server)
             .await;
-
 
         let client = ApiClient::init(discard_logger(), config)
             .await

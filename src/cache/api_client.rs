@@ -1,4 +1,8 @@
-use crate::{Config, SentryApi, status::{get_status, Status}};
+use super::*;
+use crate::{
+    status::{get_status, Status},
+    Config, SentryApi,
+};
 use async_trait::async_trait;
 use futures::future::{join_all, FutureExt};
 use primitives::{Channel, ChannelId};
@@ -6,7 +10,6 @@ use reqwest::Error;
 use slog::{error, info, Logger};
 use std::collections::{HashMap, HashSet};
 use url::Url;
-use super::*;
 
 #[derive(Debug, Clone)]
 pub struct ApiClient {
@@ -81,7 +84,10 @@ impl Client for ApiClient {
     /// - Add to the Finalized cache
     /// Other statuses:
     /// - Update the Status & Balances from the latest Leader NewState
-    async fn fetch_campaign_updates(&self, active: &ActiveCache) -> (ActiveAction, FinalizedCache) {
+    async fn fetch_campaign_updates(
+        &self,
+        active: &ActiveCache,
+    ) -> (HashMap<ChannelId, (Status, BalancesMap)>, FinalizedCache) {
         let mut update = HashMap::new();
         let mut finalize = HashSet::new();
         for (id, campaign) in active.iter() {
@@ -99,7 +105,7 @@ impl Client for ApiClient {
             };
         }
 
-        (ActiveAction::Update(update), finalize)
+        (update, finalize)
     }
 
     fn logger(&self) -> Logger {
