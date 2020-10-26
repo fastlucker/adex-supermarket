@@ -183,7 +183,10 @@ async fn handle<C: cache::Client>(
     }
 }
 
-async fn spawn_fetch_campaigns(logger: Logger, config: Config) -> Result<Cache<cache::ApiClient>, reqwest::Error> {
+async fn spawn_fetch_campaigns(
+    logger: Logger,
+    config: Config,
+) -> Result<Cache<cache::ApiClient>, reqwest::Error> {
     let api_client = cache::ApiClient::init(logger.clone(), config.clone()).await?;
     let cache = Cache::initialize(api_client).await;
 
