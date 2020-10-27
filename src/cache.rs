@@ -32,7 +32,9 @@ pub enum ActiveAction {
 #[async_trait]
 pub trait Client: core::fmt::Debug + Clone {
     fn logger(&self) -> Logger;
+    /// Collects all the Campaigns
     async fn collect_campaigns(&self) -> HashMap<ChannelId, Campaign>;
+    /// Collects updates on the active Campaigns passed to it
     async fn fetch_campaign_updates(
         &self,
         active: &ActiveCache,
@@ -51,7 +53,7 @@ impl<C> Cache<C>
 where
     C: Client,
 {
-    /// Fetches all the campaigns from the Validators on initialization.
+    /// Fetches the new campaigns on initialization.
     pub async fn initialize(client: C) -> Self {
         let logger = client.logger().clone();
         info!(&logger, "Initialize Cache with Client"; "client" => ?&client);
@@ -131,8 +133,7 @@ where
         } // Finalized cache - release of RwLockWriteGuard
     }
 
-    /// # Update the Campaigns in the Cache with:
-    /// Collects all the campaigns from all the Validators and computes their Statuses
+    /// # Update the Campaigns in the Cache
     /// - New Campaigns
     /// - New Finalized Campaigns
     pub async fn fetch_new_campaigns(&self) {
@@ -158,14 +159,7 @@ where
         self.update(ActiveAction::New(active), finalized).await
     }
 
-    /// Reads the active campaigns and schedules a list of non-finalized campaigns
-    /// for update from the Validators
-    ///
-    /// Checks the Campaign status:
-    /// If Finalized:
-    /// - Add to the Finalized cache
-    /// Other statuses:
-    /// - Update the Status & Balances from the latest Leader NewState
+    /// Reads the active campaigns and schedules a list of non-finalized campaigns for update
     pub async fn fetch_campaign_updates(&self) {
         let (active, finalized) = self
             .client

@@ -36,6 +36,7 @@ impl ApiClient {
 
 #[async_trait]
 impl Client for ApiClient {
+    /// Collects all the campaigns from all the Validators and computes their Statuses
     async fn collect_campaigns(&self) -> HashMap<ChannelId, Campaign> {
         let mut campaigns = HashMap::new();
 
@@ -74,7 +75,7 @@ impl Client for ApiClient {
         campaigns
     }
 
-    /// Reads the active campaigns and schedules a list of non-finalized campaigns
+    /// Uses the active campaigns to schedule a list of non-finalized campaigns
     /// for update from the Validators
     ///
     /// Checks the Campaign status:
