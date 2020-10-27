@@ -1,111 +1,74 @@
-use crate::{
-    status::{get_status, Status},
-    Config, SentryApi,
-};
+use crate::status::Status;
 use async_trait::async_trait;
-use chrono::{TimeZone, Utc};
-use futures::future::{join_all, FutureExt};
-use primitives::{
-    targeting::{Function, Rule, Value},
-    util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_FOLLOWER, DUMMY_VALIDATOR_LEADER},
-    validator::ValidatorId,
-    AdUnit, BalancesMap, BigNum, Channel, ChannelId, IPFS,
-};
-use reqwest::Error;
-use slog::{error, info, Logger};
+use primitives::{BalancesMap, ChannelId};
+use slog::{info, Logger};
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
-use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use url::Url;
+
+mod api_client;
+#[cfg(test)]
+pub mod mock_client;
+
+pub use api_client::ApiClient;
+#[cfg(test)]
+pub use mock_client::MockClient;
 
 // Re-export the Campaign
 pub use primitives::supermarket::Campaign;
 
-type Cached<T> = Arc<RwLock<T>>;
+pub(crate) type Cached<T> = Arc<RwLock<T>>;
 
 pub type ActiveCache = HashMap<ChannelId, Campaign>;
 pub type FinalizedCache = HashSet<ChannelId>;
 
+#[derive(Debug)]
 pub enum ActiveAction {
     /// Update exiting Campaigns in the Cache
     Update(HashMap<ChannelId, (Status, BalancesMap)>),
     /// Add new and/or replace (if Campaign exist already) Campaigns to the Cache
     New(ActiveCache),
 }
-
 #[async_trait]
-pub trait CacheLike<'a>: core::fmt::Debug + Clone {
-    async fn initialize(logger: Logger, config: Config) -> Result<Self, Error>
-    where
-        Self: Sized;
-    async fn fetch_new_campaigns(&self);
-    async fn update(&self, new_active: ActiveAction, new_finalized: FinalizedCache);
-    async fn fetch_campaign_updates(&self);
-    async fn get_active_campaigns(&self) -> HashMap<ChannelId, Campaign>;
+pub trait Client: core::fmt::Debug + Clone {
+    fn logger(&self) -> Logger;
+    /// Collects all the Campaigns
+    async fn collect_campaigns(&self) -> HashMap<ChannelId, Campaign>;
+    /// Collects updates on the active Campaigns passed to it
+    async fn fetch_campaign_updates(
+        &self,
+        active: &ActiveCache,
+    ) -> (HashMap<ChannelId, (Status, BalancesMap)>, FinalizedCache);
 }
 
 #[derive(Debug, Clone)]
-pub struct Cache {
+pub struct Cache<C: Client> {
     pub active: Cached<ActiveCache>,
     pub finalized: Cached<FinalizedCache>,
-    validators: HashSet<Url>,
+    client: C,
     logger: Logger,
-    sentry: SentryApi,
 }
 
-#[async_trait]
-impl<'a> CacheLike<'a> for Cache {
-    /// Fetches all the campaigns from the Validators on initialization.
-    async fn initialize(logger: Logger, config: Config) -> Result<Self, Error> {
-        info!(
-            &logger,
-            "Initialize Cache"; "validators" => format_args!("{:?}", &config.validators)
-        );
-        let sentry = SentryApi::new(config.timeouts.validator_request)?;
-
-        let validators = config.validators.clone();
+impl<C> Cache<C>
+where
+    C: Client,
+{
+    /// Fetches the new campaigns on initialization.
+    pub async fn initialize(client: C) -> Self {
+        let logger = client.logger().clone();
+        info!(&logger, "Initialize Cache with Client"; "client" => ?&client);
 
         let cache = Self {
             active: Default::default(),
             finalized: Default::default(),
-            validators,
             logger,
-            sentry,
+            client,
         };
 
         // collect and initialize the active campaigns
         cache.fetch_new_campaigns().await;
 
-        Ok(cache)
-    }
-
-    /// # Update the Campaigns in the Cache with:
-    /// Collects all the campaigns from all the Validators and computes their Statuses
-    /// - New Campaigns
-    /// - New Finalized Campaigns
-    async fn fetch_new_campaigns(&self) {
-        let campaigns = collect_all_campaigns(&self.logger, &self.sentry, &self.validators).await;
-
-        let (active, finalized) = campaigns.into_iter().fold(
-            (HashMap::new(), HashSet::new()),
-            |(mut active, mut finalized), (id, campaign)| {
-                // we don't need to check if the ChannelId is already in either active or finalized,
-                // since the Campaigns (ChannelId) cannot repeat in the HashMap
-                match &campaign.status {
-                    Status::Finalized(_) => {
-                        finalized.insert(id);
-                    }
-                    _ => {
-                        active.insert(id, campaign);
-                    }
-                }
-                (active, finalized)
-            },
-        );
-
-        self.update(ActiveAction::New(active), finalized).await
+        cache
     }
 
     /// Updates the full Cache with the new values:
@@ -170,92 +133,11 @@ impl<'a> CacheLike<'a> for Cache {
         } // Finalized cache - release of RwLockWriteGuard
     }
 
-    /// Reads the active campaigns and schedules a list of non-finalized campaigns
-    /// for update from the Validators
-    ///
-    /// Checks the Campaign status:
-    /// If Finalized:
-    /// - Add to the Finalized cache
-    /// Other statuses:
-    /// - Update the Status & Balances from the latest Leader NewState
-    async fn fetch_campaign_updates(&self) {
-        // we need this scope to drop the Read Lock on `self.active`
-        // before performing the finalize & update actions
-        let (update, finalize) = {
-            let active = self.active.read().await;
-
-            let mut update = HashMap::new();
-            let mut finalize = HashSet::new();
-            for (id, campaign) in active.iter() {
-                match get_status(&self.sentry, &campaign.channel).await {
-                    Ok((Status::Finalized(_), _balances)) => {
-                        finalize.insert(*id);
-                    }
-                    Ok((new_status, new_balances)) => {
-                        update.insert(*id, (new_status, new_balances));
-                    }
-                    Err(err) => error!(
-                        &self.logger,
-                        "Error getting Campaign ({:?}) status", id; "error" => ?err
-                    ),
-                };
-            }
-
-            (update, finalize)
-        };
-
-        self.update(ActiveAction::Update(update), finalize).await;
-    }
-
-    async fn get_active_campaigns(&self) -> HashMap<ChannelId, Campaign> {
-        // Needed to access the campaigns from RwLock
-        {
-            let read_campaigns = self.active.read().await;
-            let mut active = HashMap::new();
-            for (id, campaign) in read_campaigns.iter() {
-                active.insert(*id, campaign.clone());
-            }
-            active
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct MockCache {
-    pub active: Cached<ActiveCache>,
-    pub finalized: Cached<FinalizedCache>,
-    validators: HashSet<Url>,
-    logger: Logger,
-    sentry: SentryApi,
-}
-
-#[async_trait]
-impl<'a> CacheLike<'a> for MockCache {
-    async fn initialize(logger: Logger, config: Config) -> Result<Self, Error> {
-        info!(
-            &logger,
-            "Initialize a mock Cache"; "validators" => format_args!("{:?}", &config.validators)
-        );
-        let sentry = SentryApi::new(config.timeouts.validator_request)?;
-
-        let validators = config.validators.clone();
-
-        let mock_cache = Self {
-            active: Default::default(),
-            finalized: Default::default(),
-            validators,
-            logger,
-            sentry,
-        };
-
-        // collect and initialize the active campaigns
-        mock_cache.fetch_new_campaigns().await;
-
-        Ok(mock_cache)
-    }
-
-    async fn fetch_new_campaigns(&self) {
-        let campaigns = collect_mock_campaigns();
+    /// # Update the Campaigns in the Cache
+    /// - New Campaigns
+    /// - New Finalized Campaigns
+    pub async fn fetch_new_campaigns(&self) {
+        let campaigns = self.client.collect_campaigns().await;
 
         let (active, finalized) = campaigns.into_iter().fold(
             (HashMap::new(), HashSet::new()),
@@ -277,292 +159,26 @@ impl<'a> CacheLike<'a> for MockCache {
         self.update(ActiveAction::New(active), finalized).await
     }
 
-    async fn update(&self, new_active: ActiveAction, new_finalized: FinalizedCache) {
-        // Updates Active cache
-        // - Extend the Active Campaigns with the new ones
-        // - Remove the Finalized `ChannelId`s from the Active Campaigns
-        {
-            match &new_active {
-                ActiveAction::New(new_active) => {
-                    info!(&self.logger, "Adding New / Updating {} Active Campaigns", new_active.len(); "ChannelIds" => format_args!("{:?}", new_active.keys()));
-                }
+    /// Reads the active campaigns and schedules a list of non-finalized campaigns for update
+    pub async fn fetch_campaign_updates(&self) {
+        let (active, finalized) = self
+            .client
+            .fetch_campaign_updates(&*self.active.read().await)
+            .await;
 
-                ActiveAction::Update(update_active) => {
-                    info!(&self.logger, "Updating {} Active Campaigns", update_active.len(); "ChannelIds" => format_args!("{:?}", update_active.keys()));
-                }
-            }
-
-            let mut active = self.active.write().await;
-
-            match new_active {
-                // This will replace existing Campaigns and it will add the newly found ones
-                ActiveAction::New(new_active) => active.extend(new_active),
-                ActiveAction::Update(update_active) => {
-                    for (channel_id, (new_status, new_balances)) in update_active {
-                        active
-                            .entry(channel_id)
-                            .and_modify(|campaign: &mut Campaign| {
-                                campaign.status = new_status;
-                                campaign.balances = new_balances;
-                            });
-                    }
-                }
-            }
-
-            info!(&self.logger, "Try to Finalize Campaigns in the Active Cache"; "finalized" => format_args!("{:?}", &new_finalized));
-
-            for id in new_finalized.iter() {
-                // remove from active campaigns and log
-                if let Some(campaign) = active.remove(id) {
-                    info!(&self.logger, "Removed Campaign ({:?}) from Active Cache", id; "campaign" => ?campaign);
-                }
-                // the None variant is when a campaign is Finalized before it was inserted inside the Active Cache
-            }
-        } // Active cache - release of RwLockWriteGuard
-
-        // Updates Finalized cache
-        // - Extend the Finalized `ChannelId`s with the new ones
-        {
-            info!(&self.logger, "Extend with {} Finalized Campaigns", new_finalized.len(); "finalized" => format_args!("{:?}", &new_finalized));
-            let mut finalized = self.finalized.write().await;
-
-            finalized.extend(new_finalized);
-        } // Finalized cache - release of RwLockWriteGuard
+        self.update(ActiveAction::Update(active), finalized).await
     }
-
-    async fn fetch_campaign_updates(&self) {
-        // we need this scope to drop the Read Lock on `self.active`
-        // before performing the finalize & update actions
-        let (update, finalize) = {
-            let active = self.active.read().await;
-
-            let mut update = HashMap::new();
-            let mut finalize = HashSet::new();
-            for (id, campaign) in active.iter() {
-                match get_status(&self.sentry, &campaign.channel).await {
-                    Ok((Status::Finalized(_), _balances)) => {
-                        finalize.insert(*id);
-                    }
-                    Ok((new_status, new_balances)) => {
-                        update.insert(*id, (new_status, new_balances));
-                    }
-                    Err(err) => error!(
-                        &self.logger,
-                        "Error getting Campaign ({:?}) status", id; "error" => ?err
-                    ),
-                };
-            }
-
-            (update, finalize)
-        };
-
-        self.update(ActiveAction::Update(update), finalize).await;
-    }
-
-    async fn get_active_campaigns(&self) -> HashMap<ChannelId, Campaign> {
-        // Needed to access the campaigns from RwLock
-        {
-            let read_campaigns = self.active.read().await;
-            let mut active = HashMap::new();
-            for (id, campaign) in read_campaigns.iter() {
-                active.insert(*id, campaign.clone());
-            }
-            active
-        }
-    }
-}
-
-async fn collect_all_campaigns(
-    logger: &Logger,
-    sentry: &SentryApi,
-    validators: &HashSet<Url>,
-) -> HashMap<ChannelId, Campaign> {
-    let mut campaigns = HashMap::new();
-
-    for channel in get_all_channels(logger, sentry, validators).await {
-        /*
-            @TODO: Issue #23 Check ChannelId and the received Channel hash
-            We need to figure out a way to distinguish between Channels, check if they are the same and to remove incorrect ones
-            For now just check if the channel is already inside the fetched channels and log if it is
-        */
-        // if campaigns.contains_key(&channel.id) {
-        //     info!(
-        //         logger,
-        //         "Skipping Campaign ({:?}) because it's already fetched from another Validator",
-        //         &channel.id
-        //     )
-        // } else {
-        match get_status(&sentry, &channel).await {
-            Ok((status, balances)) => {
-                let channel_id = channel.id;
-                campaigns
-                    .entry(channel_id)
-                    .and_modify(|campaign: &mut Campaign| {
-                        campaign.status = status.clone();
-                        campaign.balances = balances.clone();
-                    })
-                    .or_insert_with(|| Campaign::new(channel, status, balances));
-            }
-            Err(err) => error!(
-                logger,
-                "Failed to fetch Campaign ({:?}) status from Validator", channel.id; "error" => ?err
-            ),
-        }
-        // }
-    }
-
-    campaigns
-}
-
-fn collect_mock_campaigns() -> HashMap<ChannelId, Campaign> {
-    let mut campaigns = HashMap::new();
-    let mut channel = DUMMY_CHANNEL.clone();
-    let mut leader = DUMMY_VALIDATOR_LEADER.clone();
-    leader.url = "https://itchy.adex.network".to_string();
-
-    let mut follower = DUMMY_VALIDATOR_FOLLOWER.clone();
-    follower.url = "https://scratchy.adex.network".to_string();
-    channel.spec.validators = (leader, follower).into();
-    channel.spec.ad_units = get_mock_units();
-    channel.targeting_rules = get_mock_rules();
-    channel.spec.min_per_impression = 100000000000000.into();
-    channel.spec.max_per_impression = 1000000000000000.into();
-    let mut campaign = Campaign {
-        channel,
-        status: Status::Active,
-        balances: Default::default(),
-    };
-    campaign.balances.insert(
-        ValidatorId::try_from("0xB7d3F81E857692d13e9D63b232A90F4A1793189E")
-            .expect("should convert"),
-        BigNum::from_str("100000000000000").expect("should convert"),
-    );
-
-    campaigns.insert(campaign.channel.id, campaign);
-    campaigns
-}
-
-fn get_mock_rules() -> Vec<Rule> {
-    let get_rule = Rule::Function(Function::Get("adSlot.categories".to_string()));
-    let categories_array = Rule::Value(Value::Array(vec![
-        Value::String("IAB3".to_string()),
-        Value::String("IAB13-7".to_string()),
-        Value::String("IAB5".to_string()),
-    ]));
-    let intersects_rule = Rule::Function(Function::Intersects(
-        Box::new(get_rule),
-        Box::new(categories_array),
-    ));
-    let only_show_if_rule = Rule::Function(Function::OnlyShowIf(Box::new(intersects_rule)));
-    vec![only_show_if_rule]
-}
-
-fn get_mock_units() -> Vec<AdUnit> {
-    vec![
-        AdUnit {
-            ipfs: IPFS::try_from("Qmasg8FrbuSQpjFu3kRnZF9beg8rEBFrqgi1uXDRwCbX5f")
-                .expect("should convert"),
-            media_url: "ipfs://QmcUVX7fvoLMM93uN2bD3wGTH8MXSxeL8hojYfL2Lhp7mR".to_string(),
-            media_mime: "image/jpeg".to_string(),
-            target_url: "https://www.adex.network/?stremio-test-banner-1".to_string(),
-            archived: false,
-            description: Some("test description".to_string()),
-            ad_type: "legacy_300x100".to_string(),
-            created: Utc.timestamp(1_564_383_600, 0),
-            min_targeting_score: Some(1.00),
-            modified: None,
-            owner: ValidatorId::try_from("0xB7d3F81E857692d13e9D63b232A90F4A1793189E")
-                .expect("should create ValidatorId"),
-            title: Some("test title".to_string()),
-        },
-        AdUnit {
-            ipfs: IPFS::try_from("QmVhRDGXoM3Fg3HZD5xwMuxtb9ZErwC8wHt8CjsfxaiUbZ")
-                .expect("should convert"),
-            media_url: "ipfs://QmQB7uz7Gxfy7wqAnrnBcZFaVJLos8J9gn8mRcHQU6dAi1".to_string(),
-            media_mime: "image/jpeg".to_string(),
-            target_url: "https://www.adex.network/?adex-campaign=true&pub=stremio".to_string(),
-            archived: false,
-            description: Some("test description".to_string()),
-            ad_type: "legacy_300x100".to_string(),
-            created: Utc.timestamp(1_564_383_600, 0),
-            min_targeting_score: Some(1.00),
-            modified: None,
-            owner: ValidatorId::try_from("0xB7d3F81E857692d13e9D63b232A90F4A1793189E")
-                .expect("should create ValidatorId"),
-            title: Some("test title".to_string()),
-        },
-        AdUnit {
-            ipfs: IPFS::try_from("QmYwcpMjmqJfo9ot1jGe9rfXsszFV1WbEA59QS7dEVHfJi")
-                .expect("should convert"),
-            media_url: "ipfs://QmQB7uz7Gxfy7wqAnrnBcZFaVJLos8J9gn8mRcHQU6dAi1".to_string(),
-            media_mime: "image/jpeg".to_string(),
-            target_url: "https://www.adex.network/?adex-campaign=true".to_string(),
-            archived: false,
-            description: Some("test description".to_string()),
-            ad_type: "legacy_300x100".to_string(),
-            created: Utc.timestamp(1_564_383_600, 0),
-            min_targeting_score: Some(1.00),
-            modified: None,
-            owner: ValidatorId::try_from("0xB7d3F81E857692d13e9D63b232A90F4A1793189E")
-                .expect("should create ValidatorId"),
-            title: Some("test title".to_string()),
-        },
-        AdUnit {
-            ipfs: IPFS::try_from("QmTAF3FsFDS7Ru8WChoD9ofiHTH8gAQfR4mYSnwxqTDpJH")
-                .expect("should convert"),
-            media_url: "ipfs://QmQAcfBJpDDuH99A4p3pFtUmQwamS8UYStP5HxHC7bgYXY".to_string(),
-            media_mime: "image/jpeg".to_string(),
-            target_url: "https://adex.network".to_string(),
-            archived: false,
-            description: Some("test description".to_string()),
-            ad_type: "legacy_300x100".to_string(),
-            created: Utc.timestamp(1_564_383_600, 0),
-            min_targeting_score: Some(1.00),
-            modified: None,
-            owner: ValidatorId::try_from("0xB7d3F81E857692d13e9D63b232A90F4A1793189E")
-                .expect("should create ValidatorId"),
-            title: Some("test title".to_string()),
-        },
-    ]
-}
-
-/// Retrieves all channels from all Validator URLs
-async fn get_all_channels<'a>(
-    logger: &Logger,
-    sentry: &SentryApi,
-    validators: &HashSet<Url>,
-) -> Vec<Channel> {
-    let futures = validators.iter().map(|validator| {
-        sentry
-            .get_validator_channels(validator)
-            .map(move |result| (validator, result))
-    });
-
-    join_all(futures)
-    .await
-    .into_iter()
-    .filter_map(|(validator, result)| match result {
-            Ok(channels) => {
-                info!(logger, "Fetched {} active Channels from Validator ({})", channels.len(), validator);
-
-                Some(channels)
-            },
-            Err(err) => {
-                error!(logger, "Failed to fetch Channels from Validator ({})", validator; "error" => ?err);
-
-                None
-            }
-        })
-    .flatten()
-    .collect()
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
 
-    use crate::status::test::{get_approve_state_msg, get_heartbeat_msg, get_new_state_msg};
     use crate::{config::DEVELOPMENT, util::test::discard_logger};
+    use crate::{
+        status::test::{get_approve_state_msg, get_heartbeat_msg, get_new_state_msg},
+        SentryApi,
+    };
     use chrono::{Duration, Utc};
     use primitives::{
         sentry::{
@@ -571,7 +187,9 @@ mod test {
         },
         util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_FOLLOWER, DUMMY_VALIDATOR_LEADER},
         validator::{MessageTypes, NewState},
+        Channel,
     };
+    use reqwest::Url;
     use wiremock::{
         matchers::{method, path, query_param},
         Mock, MockServer, ResponseTemplate,
@@ -581,19 +199,22 @@ mod test {
         active: HashMap<ChannelId, Campaign>,
         finalized: HashSet<ChannelId>,
         validators: HashSet<Url>,
-    ) -> Result<Cache, Box<dyn std::error::Error>> {
+    ) -> Result<Cache<ApiClient>, Box<dyn std::error::Error>> {
         let sentry = SentryApi::new(std::time::Duration::from_secs(60))?;
         let logger = discard_logger();
 
-        let cache = Cache {
-            active: Arc::new(RwLock::new(active)),
-            finalized: Arc::new(RwLock::new(finalized)),
+        let client = ApiClient {
             logger,
             sentry,
             validators,
         };
 
-        Ok(cache)
+        Ok(Cache {
+            active: Arc::new(RwLock::new(active)),
+            finalized: Arc::new(RwLock::new(finalized)),
+            logger: client.logger().clone(),
+            client,
+        })
     }
 
     fn setup_channel(leader_url: &Url, follower_url: &Url) -> Channel {
@@ -719,9 +340,10 @@ mod test {
             .mount(&mock_server)
             .await;
 
-        let cache = Cache::initialize(discard_logger(), config)
+        let client = ApiClient::init(discard_logger(), config)
             .await
             .expect("Should initialize");
+        let cache = Cache::initialize(client).await;
 
         let active_cache = cache.active.read().await;
         let active_campaign = active_cache

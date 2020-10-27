@@ -1,5 +1,6 @@
 #[cfg(test)]
 pub mod test {
+
     use slog::{o, Discard, Drain, Logger};
     use slog_async::Async;
 

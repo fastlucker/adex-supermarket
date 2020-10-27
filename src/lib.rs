@@ -1,12 +1,11 @@
 #![deny(clippy::all)]
 #![deny(rust_2018_idioms)]
 pub use cache::Cache;
-use hyper::{client::HttpConnector, Body, Client, Method, Request, Response, Server};
+use hyper::{client::HttpConnector, Body, Method, Request, Response, Server};
 use std::fmt;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use crate::cache::CacheLike;
 use http::{StatusCode, Uri};
 use slog::{error, info, Logger};
 
@@ -94,7 +93,7 @@ pub async fn serve(
 ) -> Result<(), Error> {
     use hyper::service::{make_service_fn, service_fn};
 
-    let client = Client::new();
+    let client = hyper::Client::new();
     let market = Arc::new(MarketApi::new(market_url, logger.clone())?);
 
     let cache = spawn_fetch_campaigns(logger.clone(), config.clone()).await?;
@@ -137,11 +136,11 @@ pub async fn serve(
     Ok(())
 }
 
-async fn handle(
+async fn handle<C: cache::Client>(
     mut req: Request<Body>,
     config: Config,
-    cache: Cache,
-    client: Client<HttpConnector>,
+    cache: Cache<C>,
+    client: hyper::Client<HttpConnector>,
     logger: Logger,
     market: Arc<MarketApi>,
 ) -> Result<Response<Body>, Error> {
@@ -184,8 +183,12 @@ async fn handle(
     }
 }
 
-async fn spawn_fetch_campaigns(logger: Logger, config: Config) -> Result<Cache, reqwest::Error> {
-    let cache = Cache::initialize(logger.clone(), config.clone()).await?;
+async fn spawn_fetch_campaigns(
+    logger: Logger,
+    config: Config,
+) -> Result<Cache<cache::ApiClient>, reqwest::Error> {
+    let api_client = cache::ApiClient::init(logger.clone(), config.clone()).await?;
+    let cache = Cache::initialize(api_client).await;
 
     let cache_spawn = cache.clone();
     // Every few minutes, we will get the non-finalized from the market,

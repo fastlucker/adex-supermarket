@@ -1,5 +1,5 @@
 use crate::{
-    cache::{CacheLike, Campaign},
+    cache::{Cache, Campaign, Client},
     market::AdSlotResponse,
     not_found, service_unavailable,
     status::Status,
@@ -10,10 +10,11 @@ use hyper::{header::USER_AGENT, Body, Request, Response};
 use primitives::{
     supermarket::units_for_slot::response,
     supermarket::units_for_slot::response::{AdUnit, Response as UnitsForSlotResponse},
-    targeting::{get_pricing_bounds, input, Error as EvalError, Output, Rule},
+    targeting::eval_with_callback,
+    targeting::{get_pricing_bounds, input, Output},
     ValidatorId,
 };
-use slog::{error, info, Logger};
+use slog::{error, info, warn, Logger};
 use std::convert::TryFrom;
 use std::sync::Arc;
 use url::{form_urlencoded, Url};
@@ -23,11 +24,11 @@ use woothee::parser::Parser;
 #[path = "units_for_slot_test.rs"]
 pub mod test;
 
-pub async fn get_units_for_slot<'a, T: CacheLike<'a>>(
+pub async fn get_units_for_slot<C: Client>(
     logger: &Logger,
     market: Arc<MarketApi>,
     config: &Config,
-    cache: &'a T,
+    cache: &Cache<C>,
     req: Request<Body>,
 ) -> Result<Response<Body>, Error> {
     let ipfs = req.uri().path().trim_start_matches(ROUTE_UNITS_FOR_SLOT);
@@ -40,7 +41,7 @@ pub async fn get_units_for_slot<'a, T: CacheLike<'a>>(
                 response
             }
             Ok(None) => {
-                info!(
+                warn!(
                     &logger,
                     "AdSlot ({}) not found in Market",
                     ipfs;
@@ -49,14 +50,21 @@ pub async fn get_units_for_slot<'a, T: CacheLike<'a>>(
                 return Ok(not_found());
             }
             Err(err) => {
-                error!(&logger, "Error fetching AdSlot"; "AdSlot" => ipfs, "error" => %err);
+                error!(&logger, "Error fetching AdSlot"; "AdSlot" => ipfs, "error" => ?err);
 
                 return Ok(service_unavailable());
             }
         };
 
-        // @TODO: Handle error with units retrieval
-        let units = market.fetch_units(&ad_slot_response.slot).await?;
+        let units = match market.fetch_units(&ad_slot_response.slot).await {
+            Ok(units) => units,
+            Err(error) => {
+                error!(&logger, "Error fetching AdUnits for AdSlot"; "AdSlot" => ipfs, "error" => ?error);
+
+                return Ok(service_unavailable());
+            }
+        };
+
         let accepted_referrers = ad_slot_response.accepted_referrers.clone();
         let units_ipfses: Vec<String> = units.iter().map(|au| au.id.to_string()).collect();
         let fallback_unit: Option<AdUnit> = match ad_slot_response.slot.fallback_unit.as_ref() {
@@ -67,11 +75,12 @@ pub async fn get_units_for_slot<'a, T: CacheLike<'a>>(
                         response
                     }
                     None => {
-                        info!(
+                        warn!(
                             &logger,
-                            "AdUnit ({}) not found in Market",
+                            "AdSlot fallback AdUnit ({}) not found in Market",
                             unit_ipfs;
-                            "AdUnit" => unit_ipfs
+                            "AdUnit" => unit_ipfs,
+                            "AdSlot" => ad_slot_response.slot.ipfs,
                         );
 
                         return Ok(not_found());
@@ -154,6 +163,7 @@ pub async fn get_units_for_slot<'a, T: CacheLike<'a>>(
 
         let campaigns = apply_targeting(
             config,
+            logger,
             campaigns_limited_by_earner,
             targeting_input_base.clone(),
             ad_slot_response,
@@ -173,13 +183,13 @@ pub async fn get_units_for_slot<'a, T: CacheLike<'a>>(
     }
 }
 
-async fn get_campaigns<'a, T: CacheLike<'a>>(
-    cache: &'a T,
+async fn get_campaigns<C: Client>(
+    cache: &Cache<C>,
     config: &Config,
     deposit_assets: &[String],
     publisher_id: ValidatorId,
 ) -> Vec<Campaign> {
-    let active_campaigns = cache.get_active_campaigns().await;
+    let active_campaigns = cache.active.read().await;
 
     let (mut campaigns_by_earner, rest_of_campaigns): (Vec<&Campaign>, Vec<&Campaign>) =
         active_campaigns
@@ -208,6 +218,7 @@ async fn get_campaigns<'a, T: CacheLike<'a>>(
 
 async fn apply_targeting(
     config: &Config,
+    logger: &Logger,
     campaigns: Vec<Campaign>,
     input_base: input::Source,
     ad_slot_response: AdSlotResponse,
@@ -252,7 +263,8 @@ async fn apply_targeting(
                                 .collect(),
                         };
 
-                        eval_multiple(&targeting_rules, &input, &mut output);
+                        let on_type_error_campaign = |error, rule| error!(logger, "Rule evaluation error for {:?}", campaign.channel.id; "error" => ?error, "rule" => ?rule);
+                        eval_with_callback(&targeting_rules, &input, &mut output, Some(on_type_error_campaign));
 
                         if !output.show {
                             return None;
@@ -270,7 +282,9 @@ async fn apply_targeting(
 
                         // Execute the adSlot rules after we've taken the price since they're not
                         // allowed to change the price
-                        eval_multiple(&ad_slot_response.slot.rules, &input, &mut output);
+                        let on_type_error_adslot = |error, rule| error!(logger, "Rule evaluation error AdSlot {:?}", ad_slot_response.slot.ipfs; "error" => ?error, "rule" => ?rule);
+
+                        eval_with_callback(&ad_slot_response.slot.rules, &input, &mut output, Some(on_type_error_adslot));
                         if !output.show {
                             return None;
                         }
@@ -296,19 +310,4 @@ async fn apply_targeting(
             }
         })
         .collect()
-}
-
-// @TODO: Logging & move to Targeting when ready
-fn eval_multiple(rules: &[Rule], input: &input::Input, output: &mut Output) {
-    for rule in rules {
-        match rule.eval(input, output) {
-            Ok(_) => {}
-            Err(EvalError::UnknownVariable) => {}
-            Err(EvalError::TypeError) => todo!("OnTypeErr logging"),
-        }
-
-        if !output.show {
-            return;
-        }
-    }
 }
