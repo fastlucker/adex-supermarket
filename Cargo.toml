@@ -37,3 +37,4 @@ woothee = "^0.11"
 
 [dev-dependencies]
 wiremock = "0.2"
+hex = "0.4"

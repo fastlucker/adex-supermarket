@@ -2067,6 +2067,7 @@ dependencies = [
  "chrono",
  "clap",
  "futures 0.3.5",
+ "hex",
  "http",
  "hyper",
  "lazy_static",
