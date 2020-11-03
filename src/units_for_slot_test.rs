@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    cache::mock_client::MockClient, config::Config, util::test::discard_logger, MarketApi,
+    cache::mock_client::MockClient, util::test::discard_logger, MarketApi,
 };
 use chrono::{TimeZone, Utc};
 use hex::FromHex;
@@ -26,16 +26,16 @@ mod units_for_slot_tests {
     use super::*;
     use primitives::{Channel, ChannelId};
 
-    struct ChannelUnitsPair<'a> {
-        channel: Channel,
-        units: &'a [AdUnit],
-    }
+    // struct ChannelUnitsPair<'a> {
+    //     channel: Channel,
+    //     units: &'a [AdUnit],
+    // }
 
-    impl<'a> ChannelUnitsPair<'a> {
-        pub fn new(channel: Channel, units: &'a [AdUnit]) -> Self {
-            Self { channel, units }
-        }
-    }
+    // impl<'a> ChannelUnitsPair<'a> {
+    //     pub fn new(channel: Channel, units: &'a [AdUnit]) -> Self {
+    //         Self { channel, units }
+    //     }
+    // }
 
     fn get_mock_campaign(channel: Channel, units: &[AdUnit]) -> ResponseCampaign {
         let units_with_price = get_units_with_price(&channel, &units);
@@ -129,9 +129,7 @@ mod units_for_slot_tests {
         }
     }
 
-    fn get_expected_response<'a>(
-        channels_with_units: Vec<ChannelUnitsPair<'a>>,
-    ) -> UnitsForSlotResponse {
+    fn get_expected_response(campaigns: Vec<ResponseCampaign>) -> UnitsForSlotResponse {
         let targeting_input_base = input::Source {
             ad_view: None,
             global: input::Global {
@@ -153,11 +151,6 @@ mod units_for_slot_tests {
                 alexa_rank: Some(1.0),
             }),
         };
-
-        let campaigns = channels_with_units
-            .into_iter()
-            .map(|c_u| get_mock_campaign(c_u.channel, c_u.units))
-            .collect();
 
         UnitsForSlotResponse {
             targeting_input_base: targeting_input_base.into(),
@@ -295,7 +288,7 @@ mod units_for_slot_tests {
         let rules = get_mock_rules(&categories);
         let channel = mock_channel(&rules);
 
-        let config = Config::new(None, "development").expect("should get config");
+        let config = crate::config::DEVELOPMENT.clone();
         let mock_client = MockClient::init(
             vec![mock_cache_campaign(channel.clone(), Status::Active)],
             vec![],
@@ -319,12 +312,12 @@ mod units_for_slot_tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(&mock_slot))
             .mount(&server)
             .await;
-        let channel_unit_pair = ChannelUnitsPair::new(channel.clone(), &ad_units);
-        let expected_response = get_expected_response(vec![channel_unit_pair]);
+        let campaign = get_mock_campaign(channel.clone(), &ad_units);
+        let expected_response = get_expected_response(vec![campaign]);
 
         let request = Request::get(format!(
-            "/units-for-slot/{}?depositAsset=0x89d24A6b4CcB1B6fAA2625fE562bDD9a23260359",
-            mock_slot.slot.ipfs
+            "/units-for-slot/{}?depositAsset={}",
+            mock_slot.slot.ipfs, channel.deposit_asset
         ))
         .body(Body::empty())
         .unwrap();
@@ -369,7 +362,7 @@ mod units_for_slot_tests {
         let rules = get_mock_rules(&categories);
         let channel = mock_channel(&rules);
 
-        let config = Config::new(None, "development").expect("should get config");
+        let config = crate::config::DEVELOPMENT.clone();
         let mock_client = MockClient::init(
             vec![mock_cache_campaign(channel.clone(), Status::Pending)],
             vec![],
@@ -395,8 +388,8 @@ mod units_for_slot_tests {
             .await;
         let expected_response = get_expected_response(vec![]);
         let request = Request::get(format!(
-            "/units-for-slot/{}?depositAsset=0x89d24A6b4CcB1B6fAA2625fE562bDD9a23260359",
-            mock_slot.slot.ipfs
+            "/units-for-slot/{}?depositAsset={}",
+            mock_slot.slot.ipfs, channel.deposit_asset
         ))
         .body(Body::empty())
         .unwrap();
@@ -441,7 +434,7 @@ mod units_for_slot_tests {
         let rules = get_mock_rules(&categories);
         let mut channel = mock_channel(&rules);
         channel.creator = IDS["publisher"];
-        let config = Config::new(None, "development").expect("should get config");
+        let config = crate::config::DEVELOPMENT.clone();
         let mock_client = MockClient::init(
             vec![mock_cache_campaign(channel.clone(), Status::Active)],
             vec![],
@@ -467,8 +460,8 @@ mod units_for_slot_tests {
             .await;
         let expected_response = get_expected_response(vec![]);
         let request = Request::get(format!(
-            "/units-for-slot/{}?depositAsset=0x89d24A6b4CcB1B6fAA2625fE562bDD9a23260359",
-            mock_slot.slot.ipfs
+            "/units-for-slot/{}?depositAsset={}",
+            mock_slot.slot.ipfs, channel.deposit_asset
         ))
         .body(Body::empty())
         .unwrap();
@@ -514,7 +507,7 @@ mod units_for_slot_tests {
         let mut channel = mock_channel(&rules);
         channel.spec.ad_units = vec![];
 
-        let config = Config::new(None, "development").expect("should get config");
+        let config = crate::config::DEVELOPMENT.clone();
         let mock_client = MockClient::init(
             vec![mock_cache_campaign(channel.clone(), Status::Active)],
             vec![],
@@ -540,8 +533,8 @@ mod units_for_slot_tests {
             .await;
         let expected_response = get_expected_response(vec![]);
         let request = Request::get(format!(
-            "/units-for-slot/{}?depositAsset=0x89d24A6b4CcB1B6fAA2625fE562bDD9a23260359",
-            mock_slot.slot.ipfs
+            "/units-for-slot/{}?depositAsset={}",
+            mock_slot.slot.ipfs, channel.deposit_asset
         ))
         .body(Body::empty())
         .unwrap();
@@ -586,7 +579,7 @@ mod units_for_slot_tests {
         let rules = get_mock_rules(&categories);
         let mut channel = mock_channel(&rules);
         channel.spec.min_per_impression = 1_000_000.into();
-        let config = Config::new(None, "development").expect("should get config");
+        let config = crate::config::DEVELOPMENT.clone();
         let mock_client = MockClient::init(
             vec![mock_cache_campaign(channel.clone(), Status::Active)],
             vec![],
@@ -612,8 +605,8 @@ mod units_for_slot_tests {
             .await;
         let expected_response = get_expected_response(vec![]);
         let request = Request::get(format!(
-            "/units-for-slot/{}?depositAsset=0x89d24A6b4CcB1B6fAA2625fE562bDD9a23260359",
-            mock_slot.slot.ipfs
+            "/units-for-slot/{}?depositAsset={}",
+            mock_slot.slot.ipfs, channel.deposit_asset
         ))
         .body(Body::empty())
         .unwrap();
@@ -656,9 +649,9 @@ mod units_for_slot_tests {
 
         let categories: [&str; 3] = ["IAB3", "IAB13-7", "IAB5"];
         let rules = get_mock_rules(&categories);
-        let channel = mock_channel(&rules);
-
-        let config = Config::new(None, "development").expect("should get config");
+        let mut channel = mock_channel(&rules);
+        channel.deposit_asset = "0x000000000000000000000000000000000000000".into();
+        let config = crate::config::DEVELOPMENT.clone();
         let mock_client = MockClient::init(
             vec![mock_cache_campaign(channel.clone(), Status::Active)],
             vec![],
@@ -684,8 +677,8 @@ mod units_for_slot_tests {
             .await;
         let expected_response = get_expected_response(vec![]);
         let request = Request::get(format!(
-            "/units-for-slot/{}?depositAsset=0x000000000000000000000000000000000000000",
-            mock_slot.slot.ipfs
+            "/units-for-slot/{}?depositAsset={}",
+            mock_slot.slot.ipfs, DUMMY_CHANNEL.deposit_asset
         ))
         .body(Body::empty())
         .unwrap();
@@ -737,12 +730,10 @@ mod units_for_slot_tests {
             ChannelId::from_hex("061d5e2a67d0a9a10f1c732bca12a676d83f79663a396f7d87b3e30b9b411089")
                 .expect("failed to parse channel id");
         non_matching_channel.creator = IDS["publisher"];
-        // let matching_campaign = mock_cache_campaign(channel.clone(), Status::Active);
-        // let non_matching_campaign = mock_cache_campaign(non_matching_channel.clone(), Status::Active);
         let campaigns =
             mock_multiple_cache_campaigns(vec![channel.clone(), non_matching_channel.clone()]);
 
-        let config = Config::new(None, "development").expect("should get config");
+        let config = crate::config::DEVELOPMENT.clone();
         let mock_client = MockClient::init(vec![campaigns], vec![], None).await;
 
         let mock_cache = Cache::initialize(mock_client).await;
@@ -761,8 +752,8 @@ mod units_for_slot_tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(&mock_slot))
             .mount(&server)
             .await;
-        let matching_pair = ChannelUnitsPair::new(channel, &ad_units);
-        let expected_response = get_expected_response(vec![matching_pair]);
+        let campaign = get_mock_campaign(channel.clone(), &ad_units);
+        let expected_response = get_expected_response(vec![campaign]);
 
         let request = Request::get(format!(
             "/units-for-slot/{}?depositAsset=0x89d24A6b4CcB1B6fAA2625fE562bDD9a23260359",
