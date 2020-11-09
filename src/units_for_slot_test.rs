@@ -1,7 +1,5 @@
 use super::*;
-use crate::{
-    cache::mock_client::MockClient, util::test::discard_logger, MarketApi,
-};
+use crate::{cache::mock_client::MockClient, util::test::discard_logger, MarketApi};
 use chrono::{TimeZone, Utc};
 use hex::FromHex;
 use http::request::Request;
@@ -25,17 +23,6 @@ use wiremock::{
 mod units_for_slot_tests {
     use super::*;
     use primitives::{Channel, ChannelId};
-
-    // struct ChannelUnitsPair<'a> {
-    //     channel: Channel,
-    //     units: &'a [AdUnit],
-    // }
-
-    // impl<'a> ChannelUnitsPair<'a> {
-    //     pub fn new(channel: Channel, units: &'a [AdUnit]) -> Self {
-    //         Self { channel, units }
-    //     }
-    // }
 
     fn get_mock_campaign(channel: Channel, units: &[AdUnit]) -> ResponseCampaign {
         let units_with_price = get_units_with_price(&channel, &units);
