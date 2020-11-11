@@ -1,8 +1,7 @@
 use super::*;
-use crate::{
-    cache::mock_client::MockClient, config::Config, util::test::discard_logger, MarketApi,
-};
+use crate::{cache::mock_client::MockClient, util::test::discard_logger, MarketApi};
 use chrono::{TimeZone, Utc};
+use hex::FromHex;
 use http::request::Request;
 use hyper::Body;
 use primitives::{
@@ -22,9 +21,8 @@ use wiremock::{
 };
 
 mod units_for_slot_tests {
-    use primitives::{Channel, ChannelId};
-
     use super::*;
+    use primitives::{Channel, ChannelId};
 
     fn get_mock_campaign(channel: Channel, units: &[AdUnit]) -> ResponseCampaign {
         let units_with_price = get_units_with_price(&channel, &units);
@@ -118,7 +116,7 @@ mod units_for_slot_tests {
         }
     }
 
-    fn get_expected_response(channel: Channel, units: &[AdUnit]) -> UnitsForSlotResponse {
+    fn get_expected_response(campaigns: Vec<ResponseCampaign>) -> UnitsForSlotResponse {
         let targeting_input_base = input::Source {
             ad_view: None,
             global: input::Global {
@@ -144,7 +142,7 @@ mod units_for_slot_tests {
         UnitsForSlotResponse {
             targeting_input_base: targeting_input_base.into(),
             accepted_referrers: vec![],
-            campaigns: vec![get_mock_campaign(channel, units)],
+            campaigns,
             fallback_unit: None,
         }
     }
@@ -226,12 +224,12 @@ mod units_for_slot_tests {
         channel
     }
 
-    fn mock_cache_campaign(channel: Channel) -> HashMap<ChannelId, Campaign> {
+    fn mock_cache_campaign(channel: Channel, status: Status) -> HashMap<ChannelId, Campaign> {
         let mut campaigns = HashMap::new();
 
         let mut campaign = Campaign {
             channel,
-            status: Status::Active,
+            status,
             balances: Default::default(),
         };
         campaign
@@ -242,8 +240,28 @@ mod units_for_slot_tests {
         campaigns
     }
 
+    // Assuming all campaigns are active
+    fn mock_multiple_cache_campaigns(channels: Vec<Channel>) -> HashMap<ChannelId, Campaign> {
+        let mut campaigns = HashMap::new();
+
+        for channel in channels {
+            let mut campaign = Campaign {
+                channel,
+                status: Status::Active,
+                balances: Default::default(),
+            };
+            campaign
+                .balances
+                .insert(IDS["publisher"], 100_000_000_000_000.into());
+
+            campaigns.insert(campaign.channel.id, campaign);
+        }
+
+        campaigns
+    }
+
     #[tokio::test]
-    async fn test_units_for_slot_route() {
+    async fn test_targeting_input() {
         let logger = discard_logger();
 
         let server = MockServer::start().await;
@@ -257,9 +275,14 @@ mod units_for_slot_tests {
         let rules = get_mock_rules(&categories);
         let channel = mock_channel(&rules);
 
-        let config = Config::new(None, "development").expect("should get config");
-        let mock_client =
-            MockClient::init(vec![mock_cache_campaign(channel.clone())], vec![], None).await;
+        let config = crate::config::DEVELOPMENT.clone();
+        let mock_client = MockClient::init(
+            vec![mock_cache_campaign(channel.clone(), Status::Active)],
+            vec![],
+            None,
+        )
+        .await;
+
         let mock_cache = Cache::initialize(mock_client).await;
 
         let ad_units = get_supermarket_ad_units();
@@ -276,7 +299,448 @@ mod units_for_slot_tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(&mock_slot))
             .mount(&server)
             .await;
-        let expected_response = get_expected_response(channel.clone(), &ad_units);
+        let campaign = get_mock_campaign(channel.clone(), &ad_units);
+        let expected_response = get_expected_response(vec![campaign]);
+
+        let request = Request::get(format!(
+            "/units-for-slot/{}?depositAsset={}",
+            mock_slot.slot.ipfs, channel.deposit_asset
+        ))
+        .body(Body::empty())
+        .unwrap();
+
+        let actual_response =
+            get_units_for_slot(&logger, market.clone(), &config, &mock_cache, request)
+                .await
+                .expect("call shouldn't fail with provided data");
+
+        assert_eq!(http::StatusCode::OK, actual_response.status());
+
+        let units_for_slot: UnitsForSlotResponse =
+            serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap())
+                .expect("Should deserialize");
+
+        // FIXME: Enable assert when issue #340 is solved: https://github.com/AdExNetwork/adex-validator-stack-rust/issues/340
+        // assert_eq!(expected_response.targeting_input_base, units_for_slot.targeting_input_base);
+
+        assert_eq!(
+            expected_response.campaigns.len(),
+            units_for_slot.campaigns.len()
+        );
+        assert_eq!(expected_response.campaigns, units_for_slot.campaigns);
+        assert_eq!(
+            expected_response.fallback_unit,
+            units_for_slot.fallback_unit
+        );
+    }
+
+    #[tokio::test]
+    async fn non_active_campaign() {
+        let logger = discard_logger();
+
+        let server = MockServer::start().await;
+
+        let market = Arc::new(
+            MarketApi::new(server.uri() + "/market", logger.clone())
+                .expect("should create market instance"),
+        );
+
+        let categories: [&str; 3] = ["IAB3", "IAB13-7", "IAB5"];
+        let rules = get_mock_rules(&categories);
+        let channel = mock_channel(&rules);
+
+        let config = crate::config::DEVELOPMENT.clone();
+        let mock_client = MockClient::init(
+            vec![mock_cache_campaign(channel.clone(), Status::Pending)],
+            vec![],
+            None,
+        )
+        .await;
+
+        let mock_cache = Cache::initialize(mock_client).await;
+
+        let ad_units = get_supermarket_ad_units();
+        let mock_slot = get_supermarket_ad_slot(&rules, &categories);
+
+        Mock::given(method("GET"))
+            .and(path("/market/units"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&ad_units))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!("/market/slots/{}", mock_slot.slot.ipfs)))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&mock_slot))
+            .mount(&server)
+            .await;
+        let expected_response = get_expected_response(vec![]);
+        let request = Request::get(format!(
+            "/units-for-slot/{}?depositAsset={}",
+            mock_slot.slot.ipfs, channel.deposit_asset
+        ))
+        .body(Body::empty())
+        .unwrap();
+
+        let actual_response =
+            get_units_for_slot(&logger, market.clone(), &config, &mock_cache, request)
+                .await
+                .expect("call shouldn't fail with provided data");
+
+        assert_eq!(http::StatusCode::OK, actual_response.status());
+
+        let units_for_slot: UnitsForSlotResponse =
+            serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap())
+                .expect("Should deserialize");
+
+        // FIXME: Enable assert when issue #340 is solved: https://github.com/AdExNetwork/adex-validator-stack-rust/issues/340
+        // assert_eq!(expected_response.targeting_input_base, units_for_slot.targeting_input_base);
+
+        assert_eq!(
+            expected_response.campaigns.len(),
+            units_for_slot.campaigns.len()
+        );
+        assert_eq!(expected_response.campaigns, units_for_slot.campaigns);
+        assert_eq!(
+            expected_response.fallback_unit,
+            units_for_slot.fallback_unit
+        );
+    }
+
+    #[tokio::test]
+    async fn creator_is_publisher() {
+        let logger = discard_logger();
+
+        let server = MockServer::start().await;
+
+        let market = Arc::new(
+            MarketApi::new(server.uri() + "/market", logger.clone())
+                .expect("should create market instance"),
+        );
+
+        let categories: [&str; 3] = ["IAB3", "IAB13-7", "IAB5"];
+        let rules = get_mock_rules(&categories);
+        let mut channel = mock_channel(&rules);
+        channel.creator = IDS["publisher"];
+        let config = crate::config::DEVELOPMENT.clone();
+        let mock_client = MockClient::init(
+            vec![mock_cache_campaign(channel.clone(), Status::Active)],
+            vec![],
+            None,
+        )
+        .await;
+
+        let mock_cache = Cache::initialize(mock_client).await;
+
+        let ad_units = get_supermarket_ad_units();
+        let mock_slot = get_supermarket_ad_slot(&rules, &categories);
+
+        Mock::given(method("GET"))
+            .and(path("/market/units"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&ad_units))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!("/market/slots/{}", mock_slot.slot.ipfs)))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&mock_slot))
+            .mount(&server)
+            .await;
+        let expected_response = get_expected_response(vec![]);
+        let request = Request::get(format!(
+            "/units-for-slot/{}?depositAsset={}",
+            mock_slot.slot.ipfs, channel.deposit_asset
+        ))
+        .body(Body::empty())
+        .unwrap();
+
+        let actual_response =
+            get_units_for_slot(&logger, market.clone(), &config, &mock_cache, request)
+                .await
+                .expect("call shouldn't fail with provided data");
+
+        assert_eq!(http::StatusCode::OK, actual_response.status());
+
+        let units_for_slot: UnitsForSlotResponse =
+            serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap())
+                .expect("Should deserialize");
+
+        // FIXME: Enable assert when issue #340 is solved: https://github.com/AdExNetwork/adex-validator-stack-rust/issues/340
+        // assert_eq!(expected_response.targeting_input_base, units_for_slot.targeting_input_base);
+
+        assert_eq!(
+            expected_response.campaigns.len(),
+            units_for_slot.campaigns.len()
+        );
+        assert_eq!(expected_response.campaigns, units_for_slot.campaigns);
+        assert_eq!(
+            expected_response.fallback_unit,
+            units_for_slot.fallback_unit
+        );
+    }
+
+    #[tokio::test]
+    async fn no_ad_units() {
+        let logger = discard_logger();
+
+        let server = MockServer::start().await;
+
+        let market = Arc::new(
+            MarketApi::new(server.uri() + "/market", logger.clone())
+                .expect("should create market instance"),
+        );
+
+        let categories: [&str; 3] = ["IAB3", "IAB13-7", "IAB5"];
+        let rules = get_mock_rules(&categories);
+        let mut channel = mock_channel(&rules);
+        channel.spec.ad_units = vec![];
+
+        let config = crate::config::DEVELOPMENT.clone();
+        let mock_client = MockClient::init(
+            vec![mock_cache_campaign(channel.clone(), Status::Active)],
+            vec![],
+            None,
+        )
+        .await;
+
+        let mock_cache = Cache::initialize(mock_client).await;
+
+        let ad_units: Vec<AdUnit> = get_supermarket_ad_units();
+        let mock_slot = get_supermarket_ad_slot(&rules, &categories);
+
+        Mock::given(method("GET"))
+            .and(path("/market/units"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&ad_units))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!("/market/slots/{}", mock_slot.slot.ipfs)))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&mock_slot))
+            .mount(&server)
+            .await;
+        let expected_response = get_expected_response(vec![]);
+        let request = Request::get(format!(
+            "/units-for-slot/{}?depositAsset={}",
+            mock_slot.slot.ipfs, channel.deposit_asset
+        ))
+        .body(Body::empty())
+        .unwrap();
+
+        let actual_response =
+            get_units_for_slot(&logger, market.clone(), &config, &mock_cache, request)
+                .await
+                .expect("call shouldn't fail with provided data");
+
+        assert_eq!(http::StatusCode::OK, actual_response.status());
+
+        let units_for_slot: UnitsForSlotResponse =
+            serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap())
+                .expect("Should deserialize");
+
+        // FIXME: Enable assert when issue #340 is solved: https://github.com/AdExNetwork/adex-validator-stack-rust/issues/340
+        // assert_eq!(expected_response.targeting_input_base, units_for_slot.targeting_input_base);
+
+        assert_eq!(
+            expected_response.campaigns.len(),
+            units_for_slot.campaigns.len()
+        );
+        assert_eq!(expected_response.campaigns, units_for_slot.campaigns);
+        assert_eq!(
+            expected_response.fallback_unit,
+            units_for_slot.fallback_unit
+        );
+    }
+
+    #[tokio::test]
+    async fn price_less_than_min_per_impression() {
+        let logger = discard_logger();
+
+        let server = MockServer::start().await;
+
+        let market = Arc::new(
+            MarketApi::new(server.uri() + "/market", logger.clone())
+                .expect("should create market instance"),
+        );
+
+        let categories: [&str; 3] = ["IAB3", "IAB13-7", "IAB5"];
+        let rules = get_mock_rules(&categories);
+        let mut channel = mock_channel(&rules);
+        channel.spec.min_per_impression = 1_000_000.into();
+        let config = crate::config::DEVELOPMENT.clone();
+        let mock_client = MockClient::init(
+            vec![mock_cache_campaign(channel.clone(), Status::Active)],
+            vec![],
+            None,
+        )
+        .await;
+
+        let mock_cache = Cache::initialize(mock_client).await;
+
+        let ad_units = get_supermarket_ad_units();
+        let mock_slot = get_supermarket_ad_slot(&rules, &categories);
+
+        Mock::given(method("GET"))
+            .and(path("/market/units"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&ad_units))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!("/market/slots/{}", mock_slot.slot.ipfs)))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&mock_slot))
+            .mount(&server)
+            .await;
+        let expected_response = get_expected_response(vec![]);
+        let request = Request::get(format!(
+            "/units-for-slot/{}?depositAsset={}",
+            mock_slot.slot.ipfs, channel.deposit_asset
+        ))
+        .body(Body::empty())
+        .unwrap();
+
+        let actual_response =
+            get_units_for_slot(&logger, market.clone(), &config, &mock_cache, request)
+                .await
+                .expect("call shouldn't fail with provided data");
+
+        assert_eq!(http::StatusCode::OK, actual_response.status());
+
+        let units_for_slot: UnitsForSlotResponse =
+            serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap())
+                .expect("Should deserialize");
+
+        // FIXME: Enable assert when issue #340 is solved: https://github.com/AdExNetwork/adex-validator-stack-rust/issues/340
+        // assert_eq!(expected_response.targeting_input_base, units_for_slot.targeting_input_base);
+
+        assert_eq!(
+            expected_response.campaigns.len(),
+            units_for_slot.campaigns.len()
+        );
+        assert_eq!(expected_response.campaigns, units_for_slot.campaigns);
+        assert_eq!(
+            expected_response.fallback_unit,
+            units_for_slot.fallback_unit
+        );
+    }
+
+    #[tokio::test]
+    async fn non_matching_deposit_asset() {
+        let logger = discard_logger();
+
+        let server = MockServer::start().await;
+
+        let market = Arc::new(
+            MarketApi::new(server.uri() + "/market", logger.clone())
+                .expect("should create market instance"),
+        );
+
+        let categories: [&str; 3] = ["IAB3", "IAB13-7", "IAB5"];
+        let rules = get_mock_rules(&categories);
+        let mut channel = mock_channel(&rules);
+        channel.deposit_asset = "0x000000000000000000000000000000000000000".into();
+        let config = crate::config::DEVELOPMENT.clone();
+        let mock_client = MockClient::init(
+            vec![mock_cache_campaign(channel.clone(), Status::Active)],
+            vec![],
+            None,
+        )
+        .await;
+
+        let mock_cache = Cache::initialize(mock_client).await;
+
+        let ad_units = get_supermarket_ad_units();
+        let mock_slot = get_supermarket_ad_slot(&rules, &categories);
+
+        Mock::given(method("GET"))
+            .and(path("/market/units"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&ad_units))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!("/market/slots/{}", mock_slot.slot.ipfs)))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&mock_slot))
+            .mount(&server)
+            .await;
+        let expected_response = get_expected_response(vec![]);
+        let request = Request::get(format!(
+            "/units-for-slot/{}?depositAsset={}",
+            mock_slot.slot.ipfs, DUMMY_CHANNEL.deposit_asset
+        ))
+        .body(Body::empty())
+        .unwrap();
+
+        let actual_response =
+            get_units_for_slot(&logger, market.clone(), &config, &mock_cache, request)
+                .await
+                .expect("call shouldn't fail with provided data");
+
+        assert_eq!(http::StatusCode::OK, actual_response.status());
+
+        let units_for_slot: UnitsForSlotResponse =
+            serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap())
+                .expect("Should deserialize");
+
+        // FIXME: Enable assert when issue #340 is solved: https://github.com/AdExNetwork/adex-validator-stack-rust/issues/340
+        // assert_eq!(expected_response.targeting_input_base, units_for_slot.targeting_input_base);
+
+        assert_eq!(
+            expected_response.campaigns.len(),
+            units_for_slot.campaigns.len()
+        );
+        assert_eq!(expected_response.campaigns, units_for_slot.campaigns);
+        assert_eq!(
+            expected_response.fallback_unit,
+            units_for_slot.fallback_unit
+        );
+    }
+
+    #[tokio::test]
+    async fn multiple_campaigns() {
+        let logger = discard_logger();
+
+        let server = MockServer::start().await;
+
+        let market = Arc::new(
+            MarketApi::new(server.uri() + "/market", logger.clone())
+                .expect("should create market instance"),
+        );
+
+        let categories: [&str; 3] = ["IAB3", "IAB13-7", "IAB5"];
+        let rules = get_mock_rules(&categories);
+        let channel = mock_channel(&rules);
+
+        let non_matching_categories: [&str; 3] = ["IAB2", "IAB9-WS1", "IAB19"];
+        let non_matching_rules = get_mock_rules(&non_matching_categories);
+        let mut non_matching_channel = mock_channel(&non_matching_rules);
+        non_matching_channel.id =
+            ChannelId::from_hex("061d5e2a67d0a9a10f1c732bca12a676d83f79663a396f7d87b3e30b9b411089")
+                .expect("failed to parse channel id");
+        non_matching_channel.creator = IDS["publisher"];
+        let campaigns =
+            mock_multiple_cache_campaigns(vec![channel.clone(), non_matching_channel.clone()]);
+
+        let config = crate::config::DEVELOPMENT.clone();
+        let mock_client = MockClient::init(vec![campaigns], vec![], None).await;
+
+        let mock_cache = Cache::initialize(mock_client).await;
+
+        let ad_units = get_supermarket_ad_units();
+        let mock_slot = get_supermarket_ad_slot(&rules, &categories);
+
+        Mock::given(method("GET"))
+            .and(path("/market/units"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&ad_units))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!("/market/slots/{}", mock_slot.slot.ipfs)))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&mock_slot))
+            .mount(&server)
+            .await;
+        let campaign = get_mock_campaign(channel.clone(), &ad_units);
+        let expected_response = get_expected_response(vec![campaign]);
 
         let request = Request::get(format!(
             "/units-for-slot/{}?depositAsset=0x89d24A6b4CcB1B6fAA2625fE562bDD9a23260359",
@@ -285,9 +749,10 @@ mod units_for_slot_tests {
         .body(Body::empty())
         .unwrap();
 
-        let actual_response = get_units_for_slot(&logger, market, &config, &mock_cache, request)
-            .await
-            .expect("call shouldn't fail with provided data");
+        let actual_response =
+            get_units_for_slot(&logger, market.clone(), &config, &mock_cache, request)
+                .await
+                .expect("call shouldn't fail with provided data");
 
         assert_eq!(http::StatusCode::OK, actual_response.status());
 
