@@ -256,6 +256,8 @@ mod test {
         let leader_channels = ChannelListResponse {
             channels: vec![channel.clone()],
             total_pages: 1,
+            total: 1,
+            page: 0,
         };
 
         let leader_new_state = NewStateValidatorMessage {
@@ -289,6 +291,8 @@ mod test {
         let follower_channels = ChannelListResponse {
             channels: vec![channel.clone()],
             total_pages: 1,
+            total: 1,
+            page: 0,
         };
 
         let follower_last_approved = LastApprovedResponse {
@@ -533,6 +537,8 @@ mod test {
         let leader_channels = ChannelListResponse {
             channels: vec![channel.clone()],
             total_pages: 1,
+            total: 1,
+            page: 0,
         };
 
         let leader_new_state = NewStateValidatorMessage {
@@ -559,6 +565,8 @@ mod test {
         let follower_channels = ChannelListResponse {
             channels: vec![channel.clone()],
             total_pages: 1,
+            total: 1,
+            page: 0,
         };
 
         // No ApproveState & No Heartbeats means that we are still Status::Initializing
@@ -657,6 +665,8 @@ mod test {
         let leader_channels = ChannelListResponse {
             channels: vec![channel.clone()],
             total_pages: 1,
+            total: 1,
+            page: 0,
         };
 
         Mock::given(method("GET"))
@@ -669,6 +679,8 @@ mod test {
         let follower_channels = ChannelListResponse {
             channels: vec![channel.clone()],
             total_pages: 1,
+            total: 1,
+            page: 0,
         };
 
         Mock::given(method("GET"))

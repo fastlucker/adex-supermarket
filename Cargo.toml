@@ -5,7 +5,7 @@ authors = ["Lachezar Lechev <lachezar.lechev@adex.network>"]
 edition = "2018"
 
 [dependencies]
-primitives = { git = "https://github.com/AdExNetwork/adex-validator-stack-rust", branch = "aip-31-remove-obsolete-fields" }
+primitives = { git = "https://github.com/AdExNetwork/adex-validator-stack-rust", branch = "issue-340-re-think-targeting-input" }
 chrono = { version = "0.4" }
 futures = { version = "0.3" }
 async-trait = { version = "0.1.4" }
@@ -38,3 +38,4 @@ woothee = "^0.11"
 [dev-dependencies]
 wiremock = "0.2"
 hex = "0.4"
+pretty_assertions = "^0.6"
