@@ -117,21 +117,21 @@ mod units_for_slot_tests {
     }
 
     fn get_expected_response(campaigns: Vec<ResponseCampaign>) -> UnitsForSlotResponse {
-        let targeting_input_base = input::Source {
+        let targeting_input_base = Input {
             ad_view: None,
             global: input::Global {
                 ad_slot_id: "QmVwXu9oEgYSsL6G1WZtUQy6dEReqs3Nz9iaW4Cq5QLV8C".to_string(),
-                ad_slot_type: "legacy_728x90".to_string(),
+                ad_slot_type: "legacy_300x100".to_string(),
                 publisher_id: IDS["publisher"],
                 country: None,
                 event_type: "IMPRESSION".to_string(),
                 seconds_since_epoch: u64::try_from(Utc::now().timestamp()).expect("Should convert"),
                 user_agent_os: Some("UNKNOWN".to_string()),
                 user_agent_browser_family: Some("UNKNOWN".to_string()),
-                ad_unit: None,
-                balances: None,
-                channel: None,
             },
+            ad_unit_id: None,
+            balances: None,
+            channel: None,
             ad_slot: Some(input::AdSlot {
                 categories: vec!["IAB3".into(), "IAB13-7".into(), "IAB5".into()],
                 hostname: "adex.network".to_string(),
@@ -320,8 +320,10 @@ mod units_for_slot_tests {
             serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap())
                 .expect("Should deserialize");
 
-        // FIXME: Enable assert when issue #340 is solved: https://github.com/AdExNetwork/adex-validator-stack-rust/issues/340
-        // assert_eq!(expected_response.targeting_input_base, units_for_slot.targeting_input_base);
+        pretty_assertions::assert_eq!(
+            expected_response.targeting_input_base,
+            units_for_slot.targeting_input_base
+        );
 
         assert_eq!(
             expected_response.campaigns.len(),
@@ -392,8 +394,10 @@ mod units_for_slot_tests {
             serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap())
                 .expect("Should deserialize");
 
-        // FIXME: Enable assert when issue #340 is solved: https://github.com/AdExNetwork/adex-validator-stack-rust/issues/340
-        // assert_eq!(expected_response.targeting_input_base, units_for_slot.targeting_input_base);
+        pretty_assertions::assert_eq!(
+            expected_response.targeting_input_base,
+            units_for_slot.targeting_input_base
+        );
 
         assert_eq!(
             expected_response.campaigns.len(),
@@ -464,8 +468,10 @@ mod units_for_slot_tests {
             serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap())
                 .expect("Should deserialize");
 
-        // FIXME: Enable assert when issue #340 is solved: https://github.com/AdExNetwork/adex-validator-stack-rust/issues/340
-        // assert_eq!(expected_response.targeting_input_base, units_for_slot.targeting_input_base);
+        pretty_assertions::assert_eq!(
+            expected_response.targeting_input_base,
+            units_for_slot.targeting_input_base
+        );
 
         assert_eq!(
             expected_response.campaigns.len(),
@@ -537,8 +543,10 @@ mod units_for_slot_tests {
             serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap())
                 .expect("Should deserialize");
 
-        // FIXME: Enable assert when issue #340 is solved: https://github.com/AdExNetwork/adex-validator-stack-rust/issues/340
-        // assert_eq!(expected_response.targeting_input_base, units_for_slot.targeting_input_base);
+        pretty_assertions::assert_eq!(
+            expected_response.targeting_input_base,
+            units_for_slot.targeting_input_base
+        );
 
         assert_eq!(
             expected_response.campaigns.len(),
@@ -609,8 +617,10 @@ mod units_for_slot_tests {
             serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap())
                 .expect("Should deserialize");
 
-        // FIXME: Enable assert when issue #340 is solved: https://github.com/AdExNetwork/adex-validator-stack-rust/issues/340
-        // assert_eq!(expected_response.targeting_input_base, units_for_slot.targeting_input_base);
+        pretty_assertions::assert_eq!(
+            expected_response.targeting_input_base,
+            units_for_slot.targeting_input_base
+        );
 
         assert_eq!(
             expected_response.campaigns.len(),
@@ -681,8 +691,10 @@ mod units_for_slot_tests {
             serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap())
                 .expect("Should deserialize");
 
-        // FIXME: Enable assert when issue #340 is solved: https://github.com/AdExNetwork/adex-validator-stack-rust/issues/340
-        // assert_eq!(expected_response.targeting_input_base, units_for_slot.targeting_input_base);
+        pretty_assertions::assert_eq!(
+            expected_response.targeting_input_base,
+            units_for_slot.targeting_input_base
+        );
 
         assert_eq!(
             expected_response.campaigns.len(),
@@ -760,8 +772,10 @@ mod units_for_slot_tests {
             serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap())
                 .expect("Should deserialize");
 
-        // FIXME: Enable assert when issue #340 is solved: https://github.com/AdExNetwork/adex-validator-stack-rust/issues/340
-        // assert_eq!(expected_response.targeting_input_base, units_for_slot.targeting_input_base);
+        pretty_assertions::assert_eq!(
+            expected_response.targeting_input_base,
+            units_for_slot.targeting_input_base
+        );
 
         assert_eq!(
             expected_response.campaigns.len(),

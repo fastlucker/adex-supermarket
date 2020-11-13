@@ -7,6 +7,7 @@ use crate::{
 };
 use chrono::Utc;
 use hyper::{header::USER_AGENT, Body, Request, Response};
+use input::Input;
 use primitives::{
     supermarket::units_for_slot::response,
     supermarket::units_for_slot::response::{AdUnit, Response as UnitsForSlotResponse},
@@ -142,7 +143,7 @@ pub async fn get_units_for_slot<C: Client>(
             alexa_rank: ad_slot_response.alexa_rank,
         });
 
-        let mut targeting_input_base = input::Source {
+        let mut targeting_input_base = Input {
             ad_view: None,
             global: input::Global {
                 ad_slot_id: ad_slot_response.slot.ipfs.clone(),
@@ -154,10 +155,10 @@ pub async fn get_units_for_slot<C: Client>(
                 seconds_since_epoch: u64::try_from(Utc::now().timestamp()).expect("Should convert"),
                 user_agent_os: user_agent_os.clone(),
                 user_agent_browser_family: user_agent_browser_family.clone(),
-                ad_unit: None,
-                balances: None,
-                channel: None,
             },
+            ad_unit_id: None,
+            balances: None,
+            channel: None,
             ad_slot: None,
         };
 
@@ -173,7 +174,7 @@ pub async fn get_units_for_slot<C: Client>(
         targeting_input_base.ad_slot = targeting_input_ad_slot;
 
         let response = UnitsForSlotResponse {
-            targeting_input_base: targeting_input_base.into(),
+            targeting_input_base,
             accepted_referrers,
             campaigns,
             fallback_unit,
@@ -220,7 +221,7 @@ async fn apply_targeting(
     config: &Config,
     logger: &Logger,
     campaigns: Vec<Campaign>,
-    input_base: input::Source,
+    input_base: Input,
     ad_slot_response: AdSlotResponse,
 ) -> Vec<response::Campaign> {
     campaigns
@@ -243,15 +244,13 @@ async fn apply_targeting(
                 } else {
                     campaign.channel.spec.targeting_rules.clone()
                 };
-                let mut campaign_input = input_base.clone();
-                campaign_input.global.channel = Some(campaign.channel.clone());
+                let campaign_input = input_base.clone().with_channel(campaign.channel.clone());
 
                 let matching_units: Vec<response::UnitsWithPrice> = ad_units
                     .into_iter()
                     .filter_map(|ad_unit| {
                         let mut unit_input = campaign_input.clone();
-                        unit_input.global.ad_unit = Some(ad_unit.clone());
-                        let input = input::Input::Source(Box::new(unit_input));
+                        unit_input.ad_unit_id = Some(ad_unit.ipfs.clone());
 
                         let pricing_bounds = get_pricing_bounds(&campaign.channel, "IMPRESSION");
                         let mut output = Output {
@@ -264,7 +263,7 @@ async fn apply_targeting(
                         };
 
                         let on_type_error_campaign = |error, rule| error!(logger, "Rule evaluation error for {:?}", campaign.channel.id; "error" => ?error, "rule" => ?rule);
-                        eval_with_callback(&targeting_rules, &input, &mut output, Some(on_type_error_campaign));
+                        eval_with_callback(&targeting_rules, &unit_input, &mut output, Some(on_type_error_campaign));
 
                         if !output.show {
                             return None;
@@ -284,7 +283,7 @@ async fn apply_targeting(
                         // allowed to change the price
                         let on_type_error_adslot = |error, rule| error!(logger, "Rule evaluation error AdSlot {:?}", ad_slot_response.slot.ipfs; "error" => ?error, "rule" => ?rule);
 
-                        eval_with_callback(&ad_slot_response.slot.rules, &input, &mut output, Some(on_type_error_adslot));
+                        eval_with_callback(&ad_slot_response.slot.rules, &unit_input, &mut output, Some(on_type_error_adslot));
                         if !output.show {
                             return None;
                         }
