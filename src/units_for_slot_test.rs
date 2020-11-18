@@ -1,7 +1,6 @@
 use super::*;
 use crate::{cache::mock_client::MockClient, util::test::discard_logger, MarketApi};
 use chrono::{TimeZone, Utc};
-use hex::FromHex;
 use http::request::Request;
 use hyper::Body;
 use primitives::{
@@ -709,6 +708,8 @@ mod units_for_slot_tests {
 
     #[tokio::test]
     async fn multiple_campaigns() {
+        use std::str::FromStr;
+
         let logger = discard_logger();
 
         let server = MockServer::start().await;
@@ -726,7 +727,7 @@ mod units_for_slot_tests {
         let non_matching_rules = get_mock_rules(&non_matching_categories);
         let mut non_matching_channel = mock_channel(&non_matching_rules);
         non_matching_channel.id =
-            ChannelId::from_hex("061d5e2a67d0a9a10f1c732bca12a676d83f79663a396f7d87b3e30b9b411089")
+            ChannelId::from_str("061d5e2a67d0a9a10f1c732bca12a676d83f79663a396f7d87b3e30b9b411089")
                 .expect("failed to parse channel id");
         non_matching_channel.creator = IDS["publisher"];
         let campaigns =

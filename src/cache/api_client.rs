@@ -37,22 +37,14 @@ impl ApiClient {
 #[async_trait]
 impl Client for ApiClient {
     /// Collects all the campaigns from all the Validators and computes their Statuses
+    /// Fetching the channel from each of the validators results to more calls to the validators,
+    /// however the overhead is ok, since this will only be done every couple of minutes.
+    /// If there is an invalid Channel / ChannelId the status will reflect the current state of the Channel,
+    /// since it's computed based on all validators.
     async fn collect_campaigns(&self) -> HashMap<ChannelId, Campaign> {
         let mut campaigns = HashMap::new();
 
         for channel in get_all_channels(&self.logger, &self.sentry, &self.validators).await {
-            /*
-                @TODO: Issue #23 Check ChannelId and the received Channel hash
-                We need to figure out a way to distinguish between Channels, check if they are the same and to remove incorrect ones
-                For now just check if the channel is already inside the fetched channels and log if it is
-            */
-            // if campaigns.contains_key(&channel.id) {
-            //     info!(
-            //         logger,
-            //         "Skipping Campaign ({:?}) because it's already fetched from another Validator",
-            //         &channel.id
-            //     )
-            // } else {
             match get_status(&self.sentry, &channel).await {
                 Ok((status, balances)) => {
                     let channel_id = channel.id;
@@ -69,7 +61,6 @@ impl Client for ApiClient {
                     "Failed to fetch Campaign ({:?}) status from Validator", channel.id; "error" => ?err
                 ),
             }
-            // }
         }
 
         campaigns

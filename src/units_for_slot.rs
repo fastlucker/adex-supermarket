@@ -151,8 +151,9 @@ pub async fn get_units_for_slot<C: Client>(
                 publisher_id,
                 country: country.clone(),
                 event_type: "IMPRESSION".to_string(),
-                // TODO: handle the error instead of `panic!`ing
-                seconds_since_epoch: u64::try_from(Utc::now().timestamp()).expect("Should convert"),
+                // TODO: Replace with [unsigned_abs](https://doc.rust-lang.org/std/primitive.i64.html#method.unsigned_abs) once it's stabilized
+                seconds_since_epoch: u64::try_from(Utc::now().timestamp())
+                    .expect("Should convert as it's always positive"),
                 user_agent_os: user_agent_os.clone(),
                 user_agent_browser_family: user_agent_browser_family.clone(),
             },

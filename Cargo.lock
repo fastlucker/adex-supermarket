@@ -1559,7 +1559,7 @@ dependencies = [
 [[package]]
 name = "primitives"
 version = "0.1.0"
-source = "git+https://github.com/AdExNetwork/adex-validator-stack-rust?branch=issue-340-re-think-targeting-input#73683e8f38f12e497e8f8a38632378767f4dfdf9"
+source = "git+https://github.com/AdExNetwork/adex-validator-stack-rust?branch=issue-340-re-think-targeting-input#500463697873b8fa98dcf9f7f32a98ef7f93c460"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2200,7 +2200,6 @@ dependencies = [
  "chrono",
  "clap",
  "futures 0.3.5",
- "hex",
  "http",
  "hyper",
  "lazy_static",
