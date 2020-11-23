@@ -70,12 +70,12 @@ pub async fn get_units_for_slot<C: Client>(
         let units_ipfses: Vec<String> = units.iter().map(|au| au.id.to_string()).collect();
         let fallback_unit: Option<AdUnit> = match ad_slot_response.slot.fallback_unit.as_ref() {
             Some(unit_ipfs) => {
-                let ad_unit_response = match market.fetch_unit(&unit_ipfs).await? {
-                    Some(response) => {
+                let ad_unit_response = match market.fetch_unit(&unit_ipfs).await {
+                    Ok(Some(response)) => {
                         info!(&logger, "Fetched AdUnit"; "AdUnit" => unit_ipfs);
                         response
                     }
-                    None => {
+                    Ok(None) => {
                         warn!(
                             &logger,
                             "AdSlot fallback AdUnit ({}) not found in Market",
@@ -85,6 +85,17 @@ pub async fn get_units_for_slot<C: Client>(
                         );
 
                         return Ok(not_found());
+                    }
+                    Err(error) => {
+                        error!(&logger,
+                            "Error when fetching AdSlot fallback AdUnit ({}) from Market",
+                            unit_ipfs;
+                            "AdSlot" => ipfs,
+                            "Fallback AdUnit" => unit_ipfs,
+                            "error" => ?error
+                        );
+
+                        return Ok(service_unavailable());
                     }
                 };
 
