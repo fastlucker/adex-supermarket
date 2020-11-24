@@ -11,9 +11,9 @@ use primitives::{
     util::tests::prep_db::{DUMMY_CHANNEL, IDS},
     AdSlot, BigNum, IPFS,
 };
-use std::collections::HashMap;
 use std::iter::Iterator;
 use std::sync::Arc;
+use std::{collections::HashMap, convert::TryFrom};
 use wiremock::{
     matchers::{method, path},
     Mock, MockServer, ResponseTemplate,
@@ -858,7 +858,14 @@ mod units_for_slot_tests {
                 .expect("Should deserialize");
 
         // we must use the same timestamp as the response, otherwise our tests will fail randomly
-        let expected_response = get_expected_response(vec![campaign], units_for_slot.targeting_input_base.global.seconds_since_epoch.clone());
+        let expected_response = get_expected_response(
+            vec![campaign],
+            units_for_slot
+                .targeting_input_base
+                .global
+                .seconds_since_epoch
+                .clone(),
+        );
 
         pretty_assertions::assert_eq!(
             expected_response.targeting_input_base,

@@ -6,6 +6,7 @@ use crate::{
     Config, Error, MarketApi, ROUTE_UNITS_FOR_SLOT,
 };
 use chrono::Utc;
+use http::header::HeaderName;
 use hyper::{header::USER_AGENT, Body, Request, Response};
 use input::Input;
 use primitives::{
@@ -16,11 +17,9 @@ use primitives::{
     ValidatorId,
 };
 use slog::{error, info, warn, Logger};
-use std::convert::TryFrom;
 use std::sync::Arc;
 use url::{form_urlencoded, Url};
 use woothee::{parser::Parser, woothee::VALUE_UNKNOWN};
-use http::header::HeaderName;
 
 lazy_static::lazy_static! {
     pub(crate) static ref CLOUDFLARE_IPCOUNTY_HEADER: HeaderName = HeaderName::from_static("cf-ipcountry");
@@ -133,18 +132,28 @@ pub async fn get_units_for_slot<C: Client>(
         // WARNING! This will return only the OS type, e.g. `Linux` and not the actual distribution name e.g. `Ubuntu`
         // By contrast `ua-parser-js` will return `Ubuntu` (distribution) and not the OS type `Linux`.
         // `UAParser(...).os.name` (`ua-parser-js: 0.7.22`)
-        let user_agent_os = parsed.as_ref().map(|p| if p.os != VALUE_UNKNOWN {
-            Some(p.os.to_string())
-        } else {
-            None
-        }).flatten();
+        let user_agent_os = parsed
+            .as_ref()
+            .map(|p| {
+                if p.os != VALUE_UNKNOWN {
+                    Some(p.os.to_string())
+                } else {
+                    None
+                }
+            })
+            .flatten();
 
         // Corresponds to `UAParser(...).browser.name` (`ua-parser-js: 0.7.22`)
-        let user_agent_browser_family = parsed.as_ref().map(|p| if p.name != VALUE_UNKNOWN {
-            Some(p.name.to_string())
-        } else {
-            None
-        }).flatten();
+        let user_agent_browser_family = parsed
+            .as_ref()
+            .map(|p| {
+                if p.name != VALUE_UNKNOWN {
+                    Some(p.name.to_string())
+                } else {
+                    None
+                }
+            })
+            .flatten();
 
         let country = req
             .headers()
