@@ -19,7 +19,12 @@ use slog::{error, info, warn, Logger};
 use std::convert::TryFrom;
 use std::sync::Arc;
 use url::{form_urlencoded, Url};
-use woothee::parser::Parser;
+use woothee::{parser::Parser, woothee::VALUE_UNKNOWN};
+use http::header::HeaderName;
+
+lazy_static::lazy_static! {
+    pub(crate) static ref CLOUDFLARE_IPCOUNTY_HEADER: HeaderName = HeaderName::from_static("cf-ipcountry");
+}
 
 #[cfg(test)]
 #[path = "units_for_slot_test.rs"]
@@ -125,13 +130,25 @@ pub async fn get_units_for_slot<C: Client>(
             .and_then(|h| h.to_str().map(ToString::to_string).ok())
             .unwrap_or_default();
         let parsed = ua_parser.parse(&user_agent);
-        let user_agent_os = parsed.as_ref().map(|p| p.os.to_string());
+        // WARNING! This will return only the OS type, e.g. `Linux` and not the actual distribution name e.g. `Ubuntu`
+        // By contrast `ua-parser-js` will return `Ubuntu` (distribution) and not the OS type `Linux`.
+        // `UAParser(...).os.name` (`ua-parser-js: 0.7.22`)
+        let user_agent_os = parsed.as_ref().map(|p| if p.os != VALUE_UNKNOWN {
+            Some(p.os.to_string())
+        } else {
+            None
+        }).flatten();
 
-        let user_agent_browser_family = parsed.as_ref().map(|p| p.browser_type.to_string());
+        // Corresponds to `UAParser(...).browser.name` (`ua-parser-js: 0.7.22`)
+        let user_agent_browser_family = parsed.as_ref().map(|p| if p.name != VALUE_UNKNOWN {
+            Some(p.name.to_string())
+        } else {
+            None
+        }).flatten();
 
         let country = req
             .headers()
-            .get("cf-ipcountry")
+            .get(CLOUDFLARE_IPCOUNTY_HEADER.clone())
             .and_then(|h| h.to_str().map(ToString::to_string).ok());
 
         let hostname = Url::parse(&ad_slot_response.slot.website.clone().unwrap_or_default())
@@ -163,8 +180,7 @@ pub async fn get_units_for_slot<C: Client>(
                 country: country.clone(),
                 event_type: "IMPRESSION".to_string(),
                 // TODO: Replace with [unsigned_abs](https://doc.rust-lang.org/std/primitive.i64.html#method.unsigned_abs) once it's stabilized
-                seconds_since_epoch: u64::try_from(Utc::now().timestamp())
-                    .expect("Should convert as it's always positive"),
+                seconds_since_epoch: Utc::now(),
                 user_agent_os: user_agent_os.clone(),
                 user_agent_browser_family: user_agent_browser_family.clone(),
             },

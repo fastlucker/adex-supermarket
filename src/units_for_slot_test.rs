@@ -21,7 +21,16 @@ use wiremock::{
 
 mod units_for_slot_tests {
     use super::*;
+    use chrono::DateTime;
+    use http::header::USER_AGENT;
     use primitives::{Channel, ChannelId};
+
+    // User Agent OS: Linux (only in `woothee`)
+    // User Agent Browser Family: Firefox
+    const TEST_USER_AGENT: &str =
+        "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:83.0) Gecko/20100101 Firefox/83.0";
+    // uses two-letter country codes: https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2
+    const TEST_CLOUDFLARE_IPCOUNTY: &str = "BG";
 
     fn get_mock_campaign(channel: Channel, units: &[AdUnit]) -> ResponseCampaign {
         let units_with_price = get_units_with_price(&channel, &units);
@@ -115,18 +124,24 @@ mod units_for_slot_tests {
         }
     }
 
-    fn get_expected_response(campaigns: Vec<ResponseCampaign>) -> UnitsForSlotResponse {
+    /// `seconds_since_epoch` should be set from the actual response,
+    /// this ensures that the timestamp will always match in the tests,
+    /// otherwise random tests will fail with +- 1-2-3 seconds difference
+    fn get_expected_response(
+        campaigns: Vec<ResponseCampaign>,
+        seconds_since_epoch: DateTime<Utc>,
+    ) -> UnitsForSlotResponse {
         let targeting_input_base = Input {
             ad_view: None,
             global: input::Global {
                 ad_slot_id: "QmVwXu9oEgYSsL6G1WZtUQy6dEReqs3Nz9iaW4Cq5QLV8C".to_string(),
                 ad_slot_type: "legacy_300x100".to_string(),
                 publisher_id: IDS["publisher"],
-                country: None,
+                country: Some(TEST_CLOUDFLARE_IPCOUNTY.to_string()),
                 event_type: "IMPRESSION".to_string(),
-                seconds_since_epoch: u64::try_from(Utc::now().timestamp()).expect("Should convert"),
-                user_agent_os: Some("UNKNOWN".to_string()),
-                user_agent_browser_family: Some("UNKNOWN".to_string()),
+                seconds_since_epoch,
+                user_agent_os: Some("Linux".to_string()),
+                user_agent_browser_family: Some("Firefox".to_string()),
             },
             ad_unit_id: None,
             balances: None,
@@ -239,7 +254,8 @@ mod units_for_slot_tests {
         campaigns
     }
 
-    // Assuming all campaigns are active
+    /// Assumes all `Campaign`s are `Active`
+    /// adds to Balances the `Publisher` address with `1 * 10^14` balance
     fn mock_multiple_cache_campaigns(channels: Vec<Channel>) -> HashMap<ChannelId, Campaign> {
         let mut campaigns = HashMap::new();
 
@@ -260,7 +276,7 @@ mod units_for_slot_tests {
     }
 
     #[tokio::test]
-    async fn test_targeting_input() {
+    async fn targeting_input() {
         let logger = discard_logger();
 
         let server = MockServer::start().await;
@@ -299,12 +315,13 @@ mod units_for_slot_tests {
             .mount(&server)
             .await;
         let campaign = get_mock_campaign(channel.clone(), &ad_units);
-        let expected_response = get_expected_response(vec![campaign]);
 
         let request = Request::get(format!(
             "/units-for-slot/{}?depositAsset={}",
             mock_slot.slot.ipfs, channel.deposit_asset
         ))
+        .header(USER_AGENT, TEST_USER_AGENT)
+        .header(CLOUDFLARE_IPCOUNTY_HEADER.clone(), TEST_CLOUDFLARE_IPCOUNTY)
         .body(Body::empty())
         .unwrap();
 
@@ -318,6 +335,16 @@ mod units_for_slot_tests {
         let units_for_slot: UnitsForSlotResponse =
             serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap())
                 .expect("Should deserialize");
+
+        // we must use the same timestamp as the response, otherwise our tests will fail randomly
+        let expected_response = get_expected_response(
+            vec![campaign],
+            units_for_slot
+                .targeting_input_base
+                .global
+                .seconds_since_epoch
+                .clone(),
+        );
 
         pretty_assertions::assert_eq!(
             expected_response.targeting_input_base,
@@ -374,11 +401,12 @@ mod units_for_slot_tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(&mock_slot))
             .mount(&server)
             .await;
-        let expected_response = get_expected_response(vec![]);
         let request = Request::get(format!(
             "/units-for-slot/{}?depositAsset={}",
             mock_slot.slot.ipfs, channel.deposit_asset
         ))
+        .header(USER_AGENT, TEST_USER_AGENT)
+        .header(CLOUDFLARE_IPCOUNTY_HEADER.clone(), TEST_CLOUDFLARE_IPCOUNTY)
         .body(Body::empty())
         .unwrap();
 
@@ -392,6 +420,16 @@ mod units_for_slot_tests {
         let units_for_slot: UnitsForSlotResponse =
             serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap())
                 .expect("Should deserialize");
+
+        // we must use the same timestamp as the response, otherwise our tests will fail randomly
+        let expected_response = get_expected_response(
+            vec![],
+            units_for_slot
+                .targeting_input_base
+                .global
+                .seconds_since_epoch
+                .clone(),
+        );
 
         pretty_assertions::assert_eq!(
             expected_response.targeting_input_base,
@@ -448,11 +486,13 @@ mod units_for_slot_tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(&mock_slot))
             .mount(&server)
             .await;
-        let expected_response = get_expected_response(vec![]);
+
         let request = Request::get(format!(
             "/units-for-slot/{}?depositAsset={}",
             mock_slot.slot.ipfs, channel.deposit_asset
         ))
+        .header(USER_AGENT, TEST_USER_AGENT)
+        .header(CLOUDFLARE_IPCOUNTY_HEADER.clone(), TEST_CLOUDFLARE_IPCOUNTY)
         .body(Body::empty())
         .unwrap();
 
@@ -466,6 +506,16 @@ mod units_for_slot_tests {
         let units_for_slot: UnitsForSlotResponse =
             serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap())
                 .expect("Should deserialize");
+
+        // we must use the same timestamp as the response, otherwise our tests will fail randomly
+        let expected_response = get_expected_response(
+            vec![],
+            units_for_slot
+                .targeting_input_base
+                .global
+                .seconds_since_epoch
+                .clone(),
+        );
 
         pretty_assertions::assert_eq!(
             expected_response.targeting_input_base,
@@ -523,11 +573,12 @@ mod units_for_slot_tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(&mock_slot))
             .mount(&server)
             .await;
-        let expected_response = get_expected_response(vec![]);
         let request = Request::get(format!(
             "/units-for-slot/{}?depositAsset={}",
             mock_slot.slot.ipfs, channel.deposit_asset
         ))
+        .header(USER_AGENT, TEST_USER_AGENT)
+        .header(CLOUDFLARE_IPCOUNTY_HEADER.clone(), TEST_CLOUDFLARE_IPCOUNTY)
         .body(Body::empty())
         .unwrap();
 
@@ -541,6 +592,16 @@ mod units_for_slot_tests {
         let units_for_slot: UnitsForSlotResponse =
             serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap())
                 .expect("Should deserialize");
+
+        // we must use the same timestamp as the response, otherwise our tests will fail randomly
+        let expected_response = get_expected_response(
+            vec![],
+            units_for_slot
+                .targeting_input_base
+                .global
+                .seconds_since_epoch
+                .clone(),
+        );
 
         pretty_assertions::assert_eq!(
             expected_response.targeting_input_base,
@@ -597,11 +658,12 @@ mod units_for_slot_tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(&mock_slot))
             .mount(&server)
             .await;
-        let expected_response = get_expected_response(vec![]);
         let request = Request::get(format!(
             "/units-for-slot/{}?depositAsset={}",
             mock_slot.slot.ipfs, channel.deposit_asset
         ))
+        .header(USER_AGENT, TEST_USER_AGENT)
+        .header(CLOUDFLARE_IPCOUNTY_HEADER.clone(), TEST_CLOUDFLARE_IPCOUNTY)
         .body(Body::empty())
         .unwrap();
 
@@ -615,6 +677,16 @@ mod units_for_slot_tests {
         let units_for_slot: UnitsForSlotResponse =
             serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap())
                 .expect("Should deserialize");
+
+        // we must use the same timestamp as the response, otherwise our tests will fail randomly
+        let expected_response = get_expected_response(
+            vec![],
+            units_for_slot
+                .targeting_input_base
+                .global
+                .seconds_since_epoch
+                .clone(),
+        );
 
         pretty_assertions::assert_eq!(
             expected_response.targeting_input_base,
@@ -647,7 +719,7 @@ mod units_for_slot_tests {
         let rules = get_mock_rules(&categories);
         let mut channel = mock_channel(&rules);
         channel.deposit_asset = "0x000000000000000000000000000000000000000".into();
-        let config = crate::config::DEVELOPMENT.clone();
+        let config = &crate::config::DEVELOPMENT;
         let mock_client = MockClient::init(
             vec![mock_cache_campaign(channel.clone(), Status::Active)],
             vec![],
@@ -671,11 +743,12 @@ mod units_for_slot_tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(&mock_slot))
             .mount(&server)
             .await;
-        let expected_response = get_expected_response(vec![]);
         let request = Request::get(format!(
             "/units-for-slot/{}?depositAsset={}",
             mock_slot.slot.ipfs, DUMMY_CHANNEL.deposit_asset
         ))
+        .header(USER_AGENT, TEST_USER_AGENT)
+        .header(CLOUDFLARE_IPCOUNTY_HEADER.clone(), TEST_CLOUDFLARE_IPCOUNTY)
         .body(Body::empty())
         .unwrap();
 
@@ -689,6 +762,16 @@ mod units_for_slot_tests {
         let units_for_slot: UnitsForSlotResponse =
             serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap())
                 .expect("Should deserialize");
+
+        // we must use the same timestamp as the response, otherwise our tests will fail randomly
+        let expected_response = get_expected_response(
+            vec![],
+            units_for_slot
+                .targeting_input_base
+                .global
+                .seconds_since_epoch
+                .clone(),
+        );
 
         pretty_assertions::assert_eq!(
             expected_response.targeting_input_base,
@@ -753,12 +836,13 @@ mod units_for_slot_tests {
             .mount(&server)
             .await;
         let campaign = get_mock_campaign(channel.clone(), &ad_units);
-        let expected_response = get_expected_response(vec![campaign]);
 
         let request = Request::get(format!(
-            "/units-for-slot/{}?depositAsset=0x89d24A6b4CcB1B6fAA2625fE562bDD9a23260359",
-            mock_slot.slot.ipfs
+            "/units-for-slot/{}?depositAsset={}",
+            mock_slot.slot.ipfs, DUMMY_CHANNEL.deposit_asset
         ))
+        .header(USER_AGENT, TEST_USER_AGENT)
+        .header(CLOUDFLARE_IPCOUNTY_HEADER.clone(), TEST_CLOUDFLARE_IPCOUNTY)
         .body(Body::empty())
         .unwrap();
 
@@ -772,6 +856,9 @@ mod units_for_slot_tests {
         let units_for_slot: UnitsForSlotResponse =
             serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap())
                 .expect("Should deserialize");
+
+        // we must use the same timestamp as the response, otherwise our tests will fail randomly
+        let expected_response = get_expected_response(vec![campaign], units_for_slot.targeting_input_base.global.seconds_since_epoch.clone());
 
         pretty_assertions::assert_eq!(
             expected_response.targeting_input_base,
