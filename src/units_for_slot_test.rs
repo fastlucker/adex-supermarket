@@ -882,4 +882,70 @@ mod units_for_slot_tests {
             units_for_slot.fallback_unit
         );
     }
+
+    #[tokio::test]
+    #[ignore = "exists to print output for comparison"]
+    async fn get_sample_units_for_slot_output() {
+        let logger = discard_logger();
+
+        let server = MockServer::start().await;
+
+        let market = Arc::new(
+            MarketApi::new(server.uri() + "/market", logger.clone())
+                .expect("should create market instance"),
+        );
+
+        let categories: [&str; 3] = ["IAB3", "IAB13-7", "IAB5"];
+        let rules = get_mock_rules(&categories);
+        let channel = mock_channel(&rules);
+
+        let config = crate::config::DEVELOPMENT.clone();
+        let mock_client = MockClient::init(
+            vec![mock_cache_campaign(channel.clone(), Status::Active)],
+            vec![],
+            None,
+        )
+        .await;
+
+        let mock_cache = Cache::initialize(mock_client).await;
+
+        let ad_units = get_supermarket_ad_units();
+        let mock_slot = get_supermarket_ad_slot(&rules, &categories);
+
+        Mock::given(method("GET"))
+            .and(path("/market/units"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&ad_units))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!("/market/slots/{}", mock_slot.slot.ipfs)))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&mock_slot))
+            .mount(&server)
+            .await;
+
+        let request = Request::get(format!(
+            "/units-for-slot/{}?depositAsset={}",
+            mock_slot.slot.ipfs, channel.deposit_asset
+        ))
+        .header(USER_AGENT, TEST_USER_AGENT)
+        .header(CLOUDFLARE_IPCOUNTY_HEADER.clone(), TEST_CLOUDFLARE_IPCOUNTY)
+        .body(Body::empty())
+        .unwrap();
+
+        let actual_response =
+            get_units_for_slot(&logger, market.clone(), &config, &mock_cache, request)
+                .await
+                .expect("call shouldn't fail with provided data");
+
+        assert_eq!(http::StatusCode::OK, actual_response.status());
+
+        let units_for_slot: UnitsForSlotResponse =
+            serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap())
+                .expect("Should deserialize");
+
+        println!("{:#?}", units_for_slot);
+
+        assert!(true);
+    }
 }
