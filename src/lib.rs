@@ -1,7 +1,7 @@
 #![deny(clippy::all)]
 #![deny(rust_2018_idioms)]
 pub use cache::Cache;
-use hyper::{client::HttpConnector, Body, Client, Method, Request, Response, Server};
+use hyper::{client::HttpConnector, Body, Method, Request, Response, Server};
 use std::fmt;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -14,20 +14,24 @@ pub mod config;
 pub mod market;
 pub mod sentry_api;
 pub mod status;
+mod units_for_slot;
 pub mod util;
 
 use market::MarketApi;
+use units_for_slot::get_units_for_slot;
 
 pub use config::{Config, Timeouts};
 pub use sentry_api::SentryApi;
 
-static ROUTE_UNITS_FOR_SLOT: &str = "/units-for-slot/";
+pub(crate) static ROUTE_UNITS_FOR_SLOT: &str = "/units-for-slot/";
 
 #[derive(Debug)]
 pub enum Error {
     Hyper(hyper::Error),
     Http(http::Error),
     Reqwest(reqwest::Error),
+    Url(url::ParseError),
+    Serde(serde_json::error::Error),
 }
 
 impl fmt::Display for Error {
@@ -36,6 +40,8 @@ impl fmt::Display for Error {
             Error::Hyper(e) => e.fmt(f),
             Error::Http(e) => e.fmt(f),
             Error::Reqwest(e) => e.fmt(f),
+            Error::Url(e) => e.fmt(f),
+            Error::Serde(e) => e.fmt(f),
         }
     }
 }
@@ -66,6 +72,19 @@ impl From<http::uri::InvalidUri> for Error {
     }
 }
 
+impl From<url::ParseError> for Error {
+    fn from(e: url::ParseError) -> Error {
+        Error::Url(e)
+    }
+}
+
+impl From<serde_json::error::Error> for Error {
+    fn from(e: serde_json::error::Error) -> Error {
+        Error::Serde(e)
+    }
+}
+
+// TODO: Fix `clone()`s for `Config`
 pub async fn serve(
     addr: SocketAddr,
     logger: Logger,
@@ -74,10 +93,10 @@ pub async fn serve(
 ) -> Result<(), Error> {
     use hyper::service::{make_service_fn, service_fn};
 
-    let client = Client::new();
+    let client = hyper::Client::new();
     let market = Arc::new(MarketApi::new(market_url, logger.clone())?);
 
-    let cache = spawn_fetch_campaigns(logger.clone(), config).await?;
+    let cache = spawn_fetch_campaigns(logger.clone(), config.clone()).await?;
 
     // And a MakeService to handle each connection...
     let make_service = make_service_fn(|_| {
@@ -85,13 +104,23 @@ pub async fn serve(
         let cache = cache.clone();
         let logger = logger.clone();
         let market = market.clone();
+        let config = config.clone();
         async move {
             Ok::<_, Error>(service_fn(move |req| {
                 let client = client.clone();
                 let cache = cache.clone();
                 let market = market.clone();
                 let logger = logger.clone();
-                async move { handle(req, cache, client, logger, market).await }
+                let config = config.clone();
+                async move {
+                    match handle(req, config, cache, client, logger.clone(), market).await {
+                        Err(error) => {
+                            error!(&logger, "Error ocurred"; "error" => ?error);
+                            Err(error)
+                        }
+                        Ok(resp) => Ok(resp),
+                    }
+                }
             }))
         }
     });
@@ -107,10 +136,11 @@ pub async fn serve(
     Ok(())
 }
 
-async fn handle(
+async fn handle<C: cache::Client>(
     mut req: Request<Body>,
-    _cache: Cache,
-    client: Client<HttpConnector>,
+    config: Config,
+    cache: Cache<C>,
+    client: hyper::Client<HttpConnector>,
     logger: Logger,
     market: Arc<MarketApi>,
 ) -> Result<Response<Body>, Error> {
@@ -118,51 +148,7 @@ async fn handle(
 
     match (is_units_for_slot, req.method()) {
         (true, &Method::GET) => {
-            let ipfs = req.uri().path().trim_start_matches(ROUTE_UNITS_FOR_SLOT);
-
-            if ipfs.is_empty() {
-                Ok(not_found())
-            } else {
-                let ad_slot_result = market.fetch_slot(&ipfs).await?;
-
-                let ad_slot = match ad_slot_result {
-                    Some(ad_slot) => {
-                        info!(&logger, "Fetched AdSlot"; "AdSlot" => ipfs);
-
-                        ad_slot
-                    }
-                    None => {
-                        info!(
-                            &logger,
-                            "AdSlot ({}) not found in Market",
-                            ipfs;
-                            "AdSlot" => ipfs
-                        );
-                        return Ok(not_found());
-                    }
-                };
-
-                let units = market.fetch_units(&ad_slot).await?;
-
-                let units_ipfses: Vec<String> = units.iter().map(|au| au.ipfs.clone()).collect();
-
-                info!(&logger, "Fetched AdUnits for AdSlot"; "AdSlot" => ipfs, "AdUnits" => ?&units_ipfses);
-
-                // Applying targeting.
-                // Optional but should always be applied unless there is a `?noTargeting` query parameter provided.
-                // It should find matches between the unit targeting and the slot tags.
-                // More details on how to implement after the targeting overhaul
-                let _apply_targeting = req
-                    .uri()
-                    .query()
-                    .map(|q| !q.contains("noTargeting"))
-                    .unwrap_or(true);
-
-                // @TODO: Apply trageting!
-                // @TODO: https://github.com/AdExNetwork/adex-supermarket/issues/9
-
-                Ok(Response::new(Body::from("")))
-            }
+            get_units_for_slot(&logger, market.clone(), &config, &cache, req).await
         }
         (_, method) => {
             use http::uri::PathAndQuery;
@@ -188,7 +174,7 @@ async fn handle(
                 Err(err) => {
                     error!(&logger, "Proxying request to market failed"; "uri" => uri, "method" => %method, "error" => ?&err);
 
-                    service_unavaiable()
+                    service_unavailable()
                 }
             };
 
@@ -197,12 +183,12 @@ async fn handle(
     }
 }
 
-async fn spawn_fetch_campaigns(logger: Logger, config: Config) -> Result<Cache, reqwest::Error> {
-    info!(
-        &logger,
-        "Initialize Cache"; "validators" => format_args!("{:?}", &config.validators)
-    );
-    let cache = Cache::initialize(logger.clone(), config.clone()).await?;
+async fn spawn_fetch_campaigns(
+    logger: Logger,
+    config: Config,
+) -> Result<Cache<cache::ApiClient>, reqwest::Error> {
+    let api_client = cache::ApiClient::init(logger.clone(), config.clone()).await?;
+    let cache = Cache::initialize(api_client).await;
 
     let cache_spawn = cache.clone();
     // Every few minutes, we will get the non-finalized from the market,
@@ -258,14 +244,14 @@ async fn spawn_fetch_campaigns(logger: Logger, config: Config) -> Result<Cache, 
     Ok(cache)
 }
 
-fn not_found() -> Response<Body> {
+pub(crate) fn not_found() -> Response<Body> {
     Response::builder()
         .status(StatusCode::NOT_FOUND)
         .body(Body::empty())
         .expect("Not Found response should be valid")
 }
 
-fn service_unavaiable() -> Response<Body> {
+pub(crate) fn service_unavailable() -> Response<Body> {
     Response::builder()
         .status(StatusCode::SERVICE_UNAVAILABLE)
         .body(Body::empty())

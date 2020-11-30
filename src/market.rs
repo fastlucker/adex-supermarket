@@ -1,11 +1,13 @@
 use primitives::{
     market::{Campaign, StatusType},
-    AdSlot, AdUnit,
+    supermarket::units_for_slot::response::AdUnit,
+    AdSlot,
 };
 use reqwest::{Client, Error, StatusCode};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use slog::{info, Logger};
 use std::fmt;
+use url::Url;
 
 pub type MarketUrl = String;
 pub type Result<T> = std::result::Result<T, Error>;
@@ -15,6 +17,21 @@ pub struct MarketApi {
     pub market_url: MarketUrl,
     client: Client,
     logger: Logger,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdSlotResponse {
+    pub slot: AdSlot,
+    pub accepted_referrers: Vec<Url>,
+    pub categories: Vec<String>,
+    pub alexa_rank: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdUnitResponse {
+    pub unit: AdUnit,
 }
 
 impl MarketApi {
@@ -38,24 +55,35 @@ impl MarketApi {
 
     /// ipfs: ipfs hash
     /// Handles the 404 case, returning a None, instead of Error
-    pub async fn fetch_slot(&self, ipfs: &str) -> Result<Option<AdSlot>> {
-        #[derive(Deserialize)]
-        struct AdSlotResponse {
-            slot: AdSlot,
-        }
+    pub async fn fetch_slot(&self, ipfs: &str) -> Result<Option<AdSlotResponse>> {
         let url = format!("{}/slots/{}", self.market_url, ipfs);
-        let response = self.client.get(&url).send().await?;
 
-        if let StatusCode::NOT_FOUND = response.status() {
+        let response = self.client.get(&url).send().await?;
+        if StatusCode::NOT_FOUND == response.status() {
             Ok(None)
         } else {
             let ad_slot_response = response.json::<AdSlotResponse>().await?;
-            Ok(Some(ad_slot_response.slot))
+            Ok(Some(ad_slot_response))
+        }
+    }
+
+    pub async fn fetch_unit(&self, ipfs: &str) -> Result<Option<AdUnitResponse>> {
+        let url = format!("{}/units/{}", self.market_url, ipfs);
+
+        match self.client.get(&url).send().await?.error_for_status() {
+            Ok(response) => {
+                let ad_unit_response = response.json::<AdUnitResponse>().await?;
+
+                Ok(Some(ad_unit_response))
+            }
+            // if we have a `404 Not Found` error, return None
+            Err(err) if err.status() == Some(StatusCode::NOT_FOUND) => Ok(None),
+            Err(err) => Err(err),
         }
     }
 
     pub async fn fetch_units(&self, ad_slot: &AdSlot) -> Result<Vec<AdUnit>> {
-        let mut campaigns = Vec::new();
+        let mut units = Vec::new();
         let mut skip: u64 = 0;
         let limit = Self::MARKET_AD_UNITS_LIMIT;
 
@@ -65,8 +93,8 @@ impl MarketApi {
             // get the count before appending the page results to all
             let count = page_results.len() as u64;
 
-            // append all received campaigns
-            campaigns.append(&mut page_results);
+            // append all received units
+            units.append(&mut page_results);
             // add the number of results we need to skip in the next iteration
             skip += count;
 
@@ -78,7 +106,7 @@ impl MarketApi {
             }
         }
 
-        Ok(campaigns)
+        Ok(units)
     }
 
     /// `skip` - how many records it should skip (pagination)
