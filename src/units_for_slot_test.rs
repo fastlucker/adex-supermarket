@@ -239,6 +239,7 @@ mod units_for_slot_tests {
         channel.spec.targeting_rules = rules.to_vec();
         channel.spec.min_per_impression = 100_000_000_000_000.into();
         channel.spec.max_per_impression = 1_000_000_000_000_000.into();
+        channel.spec.active_from = Some(Utc.timestamp_millis(1_606_136_400_000));
 
         channel
     }
