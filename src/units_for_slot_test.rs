@@ -154,7 +154,7 @@ mod units_for_slot_tests {
             ad_slot: Some(input::AdSlot {
                 categories: vec!["IAB3".into(), "IAB13-7".into(), "IAB5".into()],
                 hostname: "adex.network".to_string(),
-                alexa_rank: Some(1.0),
+                alexa_rank: Some(1337.0),
             }),
         };
 
@@ -952,6 +952,6 @@ mod units_for_slot_tests {
         let units_for_slot_pretty =
             serde_json::to_string_pretty(&units_for_slot).expect("should turn to string");
 
-        println!("{:?}", units_for_slot_pretty);
+        println!("{}", units_for_slot_pretty);
     }
 }
