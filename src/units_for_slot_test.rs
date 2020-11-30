@@ -12,8 +12,10 @@ use primitives::{
     AdSlot, BigNum, IPFS,
 };
 use std::iter::Iterator;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::{collections::HashMap, convert::TryFrom};
+use url::Url;
 use wiremock::{
     matchers::{method, path},
     Mock, MockServer, ResponseTemplate,
@@ -103,24 +105,27 @@ mod units_for_slot_tests {
 
         let ad_slot = AdSlot {
             ipfs: "QmVwXu9oEgYSsL6G1WZtUQy6dEReqs3Nz9iaW4Cq5QLV8C".to_string(),
-            ad_type: "legacy_300x100".to_string(),
+            ad_type: "legacy_250x250".to_string(),
             archived: false,
             created: Utc.timestamp(1_564_383_600, 0),
-            description: Some("test slot".to_string()),
+            description: Some("Test slot for running integration tests".to_string()),
             fallback_unit: None,
             min_per_impression: Some(min_per_impression),
             modified: Some(Utc.timestamp(1_564_383_600, 0)),
             owner: IDS["publisher"],
-            title: Some("Test slot".to_string()),
+            title: Some("Test slot 1".to_string()),
             website: Some("https://adex.network".to_string()),
             rules: rules.to_vec(),
         };
 
         AdSlotResponse {
             slot: ad_slot,
-            accepted_referrers: Default::default(),
+            accepted_referrers: vec![
+                Url::from_str("https://adex.network").expect("should parse"),
+                Url::from_str("https://www.adex.network").expect("should parse"),
+            ],
             categories: categories.iter().map(|s| String::from(*s)).collect(),
-            alexa_rank: Some(1.0),
+            alexa_rank: Some(1337.0),
         }
     }
 
@@ -135,7 +140,7 @@ mod units_for_slot_tests {
             ad_view: None,
             global: input::Global {
                 ad_slot_id: "QmVwXu9oEgYSsL6G1WZtUQy6dEReqs3Nz9iaW4Cq5QLV8C".to_string(),
-                ad_slot_type: "legacy_300x100".to_string(),
+                ad_slot_type: "legacy_250x250".to_string(),
                 publisher_id: IDS["publisher"],
                 country: Some(TEST_CLOUDFLARE_IPCOUNTY.to_string()),
                 event_type: "IMPRESSION".to_string(),
@@ -171,7 +176,7 @@ mod units_for_slot_tests {
                 target_url: "https://www.adex.network/?stremio-test-banner-1".to_string(),
                 archived: false,
                 description: Some("test description".to_string()),
-                ad_type: "legacy_300x100".to_string(),
+                ad_type: "legacy_250x250".to_string(),
                 created: Utc.timestamp(1_564_383_600, 0),
                 min_targeting_score: Some(1.00),
                 modified: None,
@@ -186,7 +191,7 @@ mod units_for_slot_tests {
                 target_url: "https://www.adex.network/?adex-campaign=true&pub=stremio".to_string(),
                 archived: false,
                 description: Some("test description".to_string()),
-                ad_type: "legacy_300x100".to_string(),
+                ad_type: "legacy_250x250".to_string(),
                 created: Utc.timestamp(1_564_383_600, 0),
                 min_targeting_score: Some(1.00),
                 modified: None,
@@ -201,7 +206,7 @@ mod units_for_slot_tests {
                 target_url: "https://www.adex.network/?adex-campaign=true".to_string(),
                 archived: false,
                 description: Some("test description".to_string()),
-                ad_type: "legacy_300x100".to_string(),
+                ad_type: "legacy_250x250".to_string(),
                 created: Utc.timestamp(1_564_383_600, 0),
                 min_targeting_score: Some(1.00),
                 modified: None,
@@ -216,7 +221,7 @@ mod units_for_slot_tests {
                 target_url: "https://adex.network".to_string(),
                 archived: false,
                 description: Some("test description".to_string()),
-                ad_type: "legacy_300x100".to_string(),
+                ad_type: "legacy_250x250".to_string(),
                 created: Utc.timestamp(1_564_383_600, 0),
                 min_targeting_score: Some(1.00),
                 modified: None,
@@ -943,9 +948,9 @@ mod units_for_slot_tests {
         let units_for_slot: UnitsForSlotResponse =
             serde_json::from_slice(&hyper::body::to_bytes(actual_response).await.unwrap())
                 .expect("Should deserialize");
+        let units_for_slot_pretty =
+            serde_json::to_string_pretty(&units_for_slot).expect("should turn to string");
 
-        println!("{:#?}", units_for_slot);
-
-        assert!(true);
+        println!("{:?}", units_for_slot_pretty);
     }
 }
