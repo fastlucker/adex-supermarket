@@ -1,0 +1,4 @@
+target/
+scripts/
+Dockerfile
+docker-compose.yml
