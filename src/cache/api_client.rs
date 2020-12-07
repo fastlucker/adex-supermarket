@@ -1,19 +1,17 @@
 use super::*;
 use crate::{
     status::{get_status, Status},
-    Config, SentryApi,
+    Config, Error, SentryApi,
 };
 use async_trait::async_trait;
 use futures::future::{join_all, FutureExt};
-use primitives::{Channel, ChannelId};
-use reqwest::Error;
+use primitives::{util::ApiUrl, Channel, ChannelId};
 use slog::{error, info, Logger};
 use std::collections::{HashMap, HashSet};
-use url::Url;
 
 #[derive(Debug, Clone)]
 pub struct ApiClient {
-    pub(crate) validators: HashSet<Url>,
+    pub(crate) validators: HashSet<ApiUrl>,
     pub(crate) logger: Logger,
     pub(crate) sentry: SentryApi,
 }
@@ -107,7 +105,7 @@ impl Client for ApiClient {
 async fn get_all_channels<'a>(
     logger: &Logger,
     sentry: &SentryApi,
-    validators: &HashSet<Url>,
+    validators: &HashSet<ApiUrl>,
 ) -> Vec<Channel> {
     let futures = validators.iter().map(|validator| {
         sentry

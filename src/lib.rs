@@ -2,9 +2,9 @@
 #![deny(rust_2018_idioms)]
 pub use cache::Cache;
 use hyper::{client::HttpConnector, Body, Method, Request, Response, Server};
-use std::fmt;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use thiserror::Error;
 
 use http::{StatusCode, Uri};
 use slog::{error, info, Logger};
@@ -17,7 +17,7 @@ pub mod status;
 mod units_for_slot;
 pub mod util;
 
-use market::MarketApi;
+use market::{MarketApi, MarketUrl};
 use units_for_slot::get_units_for_slot;
 
 pub use config::{Config, Timeouts};
@@ -25,45 +25,20 @@ pub use sentry_api::SentryApi;
 
 pub(crate) static ROUTE_UNITS_FOR_SLOT: &str = "/units-for-slot/";
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum Error {
-    Hyper(hyper::Error),
-    Http(http::Error),
-    Reqwest(reqwest::Error),
-    Url(url::ParseError),
-    Serde(serde_json::error::Error),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Error::Hyper(e) => e.fmt(f),
-            Error::Http(e) => e.fmt(f),
-            Error::Reqwest(e) => e.fmt(f),
-            Error::Url(e) => e.fmt(f),
-            Error::Serde(e) => e.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for Error {}
-
-impl From<hyper::Error> for Error {
-    fn from(e: hyper::Error) -> Error {
-        Error::Hyper(e)
-    }
-}
-
-impl From<http::Error> for Error {
-    fn from(e: http::Error) -> Error {
-        Error::Http(e)
-    }
-}
-
-impl From<reqwest::Error> for Error {
-    fn from(e: reqwest::Error) -> Error {
-        Error::Reqwest(e)
-    }
+    #[error(transparent)]
+    Hyper(#[from] hyper::Error),
+    #[error(transparent)]
+    Http(#[from] http::Error),
+    #[error(transparent)]
+    Reqwest(#[from] reqwest::Error),
+    #[error(transparent)]
+    Url(#[from] url::ParseError),
+    #[error(transparent)]
+    Serde(#[from] serde_json::error::Error),
+    #[error(transparent)]
+    SentryApi(#[from] sentry_api::Error),
 }
 
 impl From<http::uri::InvalidUri> for Error {
@@ -72,23 +47,11 @@ impl From<http::uri::InvalidUri> for Error {
     }
 }
 
-impl From<url::ParseError> for Error {
-    fn from(e: url::ParseError) -> Error {
-        Error::Url(e)
-    }
-}
-
-impl From<serde_json::error::Error> for Error {
-    fn from(e: serde_json::error::Error) -> Error {
-        Error::Serde(e)
-    }
-}
-
 // TODO: Fix `clone()`s for `Config`
 pub async fn serve(
     addr: SocketAddr,
     logger: Logger,
-    market_url: String,
+    market_url: MarketUrl,
     config: Config,
 ) -> Result<(), Error> {
     use hyper::service::{make_service_fn, service_fn};
@@ -186,7 +149,7 @@ async fn handle<C: cache::Client>(
 async fn spawn_fetch_campaigns(
     logger: Logger,
     config: Config,
-) -> Result<Cache<cache::ApiClient>, reqwest::Error> {
+) -> Result<Cache<cache::ApiClient>, Error> {
     let api_client = cache::ApiClient::init(logger.clone(), config.clone()).await?;
     let cache = Cache::initialize(api_client).await;
 

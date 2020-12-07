@@ -185,11 +185,13 @@ mod test {
             ChannelListResponse, LastApproved, LastApprovedResponse, NewStateValidatorMessage,
             ValidatorMessage, ValidatorMessageResponse,
         },
-        util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_FOLLOWER, DUMMY_VALIDATOR_LEADER},
+        util::{
+            api::ApiUrl,
+            tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_FOLLOWER, DUMMY_VALIDATOR_LEADER},
+        },
         validator::{MessageTypes, NewState},
         Channel,
     };
-    use reqwest::Url;
     use wiremock::{
         matchers::{method, path, query_param},
         Mock, MockServer, ResponseTemplate,
@@ -198,7 +200,7 @@ mod test {
     fn setup_cache(
         active: HashMap<ChannelId, Campaign>,
         finalized: HashSet<ChannelId>,
-        validators: HashSet<Url>,
+        validators: HashSet<ApiUrl>,
     ) -> Result<Cache<ApiClient>, Box<dyn std::error::Error>> {
         let sentry = SentryApi::new(std::time::Duration::from_secs(60))?;
         let logger = discard_logger();
@@ -217,7 +219,7 @@ mod test {
         })
     }
 
-    fn setup_channel(leader_url: &Url, follower_url: &Url) -> Channel {
+    fn setup_channel(leader_url: &ApiUrl, follower_url: &ApiUrl) -> Channel {
         let mut channel = DUMMY_CHANNEL.clone();
         let mut leader = DUMMY_VALIDATOR_LEADER.clone();
         leader.url = leader_url.to_string();
@@ -587,6 +589,7 @@ mod test {
 
         Mock::given(method("GET"))
             .and(path("/leader/last-approved"))
+            .and(query_param("withHeartbeat", "true"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&leader_last_approved))
             // The second time we call is from the Follower Validator to get up to date Status of the Campaign
             .expect(2_u64)
@@ -602,6 +605,7 @@ mod test {
 
         Mock::given(method("GET"))
             .and(path("/follower/last-approved"))
+            .and(query_param("withHeartbeat", "true"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&follower_last_approved))
             .expect(2_u64)
             .mount(&mock_server)

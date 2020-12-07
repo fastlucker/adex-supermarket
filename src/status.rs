@@ -1,11 +1,10 @@
-use crate::sentry_api::SentryApi;
+use crate::sentry_api::{Error, SentryApi};
 use chrono::{DateTime, Duration, Utc};
 use primitives::{
     sentry::{HeartbeatValidatorMessage, LastApprovedResponse, NewStateValidatorMessage},
     validator::{ApproveState, MessageTypes},
     BalancesMap, BigNum, Channel, ValidatorId,
 };
-use reqwest::Error;
 
 // Re-export the Status & Finalized enums
 pub use primitives::supermarket::{Finalized, Status};
