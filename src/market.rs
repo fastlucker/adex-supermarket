@@ -9,7 +9,7 @@ use slog::{info, Logger};
 use std::fmt;
 use url::Url;
 
-pub type MarketUrl = String;
+pub type MarketUrl = Url;
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Clone)]
@@ -44,7 +44,7 @@ impl MarketApi {
 
     pub fn new(market_url: MarketUrl, logger: Logger) -> Result<Self> {
         // @TODO: maybe add timeout?
-        let client = Client::new();
+        let client = Client::builder().build()?;
 
         Ok(Self {
             market_url,
@@ -56,9 +56,12 @@ impl MarketApi {
     /// ipfs: ipfs hash
     /// Handles the 404 case, returning a None, instead of Error
     pub async fn fetch_slot(&self, ipfs: &str) -> Result<Option<AdSlotResponse>> {
-        let url = format!("{}/slots/{}", self.market_url, ipfs);
+        let url = self
+            .market_url
+            .join(&format!("slots/{}", ipfs))
+            .expect("Wrong Market Url for /slots/{IPFS} endpoint");
 
-        let response = self.client.get(&url).send().await?;
+        let response = self.client.get(url).send().await?;
         if StatusCode::NOT_FOUND == response.status() {
             Ok(None)
         } else {
@@ -68,9 +71,12 @@ impl MarketApi {
     }
 
     pub async fn fetch_unit(&self, ipfs: &str) -> Result<Option<AdUnitResponse>> {
-        let url = format!("{}/units/{}", self.market_url, ipfs);
+        let url = self
+            .market_url
+            .join(&format!("units/{}", ipfs))
+            .expect("Wrong Market Url for /units/{IPFS} endpoint");
 
-        match self.client.get(&url).send().await?.error_for_status() {
+        match self.client.get(url).send().await?.error_for_status() {
             Ok(response) => {
                 let ad_unit_response = response.json::<AdUnitResponse>().await?;
 
@@ -111,14 +117,17 @@ impl MarketApi {
 
     /// `skip` - how many records it should skip (pagination)
     async fn fetch_units_page(&self, ad_type: &str, skip: u64) -> Result<Vec<AdUnit>> {
-        let url = format!(
-            "{}/units?limit={}&skip={}&type={}",
-            self.market_url,
-            Self::MARKET_AD_UNITS_LIMIT,
-            skip,
-            ad_type,
-        );
-        let response = self.client.get(&url).send().await?;
+        let url = self
+            .market_url
+            .join(&format!(
+                "units?limit={}&skip={}&type={}",
+                Self::MARKET_AD_UNITS_LIMIT,
+                skip,
+                ad_type,
+            ))
+            .expect("Wrong Market Url for /units endpoint");
+
+        let response = self.client.get(url).send().await?;
 
         let ad_units: Vec<AdUnit> = response.json().await?;
 
@@ -157,14 +166,17 @@ impl MarketApi {
         statuses: &Statuses<'_>,
         skip: u64,
     ) -> Result<Vec<Campaign>> {
-        let url = format!(
-            "{}/campaigns?{}&limit={}&skip={}",
-            self.market_url,
-            statuses,
-            Self::MARKET_CAMPAIGNS_LIMIT,
-            skip
-        );
-        let response = self.client.get(&url).send().await?;
+        let url = self
+            .market_url
+            .join(&format!(
+                "campaigns?{}&limit={}&skip={}",
+                statuses,
+                Self::MARKET_CAMPAIGNS_LIMIT,
+                skip
+            ))
+            .expect("Wrong Market Url for /campaigns endpoint");
+
+        let response = self.client.get(url.clone()).send().await?;
 
         let campaigns: Vec<Campaign> = response.json().await?;
 

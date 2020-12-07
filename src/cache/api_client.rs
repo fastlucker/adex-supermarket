@@ -1,12 +1,11 @@
 use super::*;
 use crate::{
     status::{get_status, Status},
-    Config, SentryApi,
+    Config, Error, SentryApi,
 };
 use async_trait::async_trait;
 use futures::future::{join_all, FutureExt};
 use primitives::{Channel, ChannelId};
-use reqwest::Error;
 use slog::{error, info, Logger};
 use std::collections::{HashMap, HashSet};
 use url::Url;

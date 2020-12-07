@@ -28,8 +28,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let market_url = cli
         .value_of("marketUrl")
-        .expect("No market URL provided!")
-        .to_string();
+        .expect("No Market URL provided!")
+        .parse()
+        .expect("Market Url couldn't be parsed as URL");
 
     let environment = std::env::var("ENV").unwrap_or_else(|_| "development".into());
     let config_path = cli.value_of("config");

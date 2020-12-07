@@ -288,8 +288,13 @@ mod units_for_slot_tests {
         let server = MockServer::start().await;
 
         let market = Arc::new(
-            MarketApi::new(server.uri() + "/market", logger.clone())
-                .expect("should create market instance"),
+            MarketApi::new(
+                (server.uri() + "/market/")
+                    .parse()
+                    .expect("Wrong Market url"),
+                logger.clone(),
+            )
+            .expect("should create market instance"),
         );
 
         let categories: [&str; 3] = ["IAB3", "IAB13-7", "IAB5"];
@@ -375,8 +380,13 @@ mod units_for_slot_tests {
         let server = MockServer::start().await;
 
         let market = Arc::new(
-            MarketApi::new(server.uri() + "/market", logger.clone())
-                .expect("should create market instance"),
+            MarketApi::new(
+                (server.uri() + "/market/")
+                    .parse()
+                    .expect("Wrong Market url"),
+                logger.clone(),
+            )
+            .expect("should create market instance"),
         );
 
         let categories: [&str; 3] = ["IAB3", "IAB13-7", "IAB5"];
@@ -460,8 +470,13 @@ mod units_for_slot_tests {
         let server = MockServer::start().await;
 
         let market = Arc::new(
-            MarketApi::new(server.uri() + "/market", logger.clone())
-                .expect("should create market instance"),
+            MarketApi::new(
+                (server.uri() + "/market/")
+                    .parse()
+                    .expect("Wrong Market url"),
+                logger.clone(),
+            )
+            .expect("should create market instance"),
         );
 
         let categories: [&str; 3] = ["IAB3", "IAB13-7", "IAB5"];
@@ -546,8 +561,13 @@ mod units_for_slot_tests {
         let server = MockServer::start().await;
 
         let market = Arc::new(
-            MarketApi::new(server.uri() + "/market", logger.clone())
-                .expect("should create market instance"),
+            MarketApi::new(
+                (server.uri() + "/market/")
+                    .parse()
+                    .expect("Wrong Market url"),
+                logger.clone(),
+            )
+            .expect("should create market instance"),
         );
 
         let categories: [&str; 3] = ["IAB3", "IAB13-7", "IAB5"];
@@ -632,8 +652,13 @@ mod units_for_slot_tests {
         let server = MockServer::start().await;
 
         let market = Arc::new(
-            MarketApi::new(server.uri() + "/market", logger.clone())
-                .expect("should create market instance"),
+            MarketApi::new(
+                (server.uri() + "/market/")
+                    .parse()
+                    .expect("Wrong Market url"),
+                logger.clone(),
+            )
+            .expect("should create market instance"),
         );
 
         let categories: [&str; 3] = ["IAB3", "IAB13-7", "IAB5"];
@@ -717,8 +742,13 @@ mod units_for_slot_tests {
         let server = MockServer::start().await;
 
         let market = Arc::new(
-            MarketApi::new(server.uri() + "/market", logger.clone())
-                .expect("should create market instance"),
+            MarketApi::new(
+                (server.uri() + "/market/")
+                    .parse()
+                    .expect("Wrong Market url"),
+                logger.clone(),
+            )
+            .expect("should create market instance"),
         );
 
         let categories: [&str; 3] = ["IAB3", "IAB13-7", "IAB5"];
@@ -804,8 +834,13 @@ mod units_for_slot_tests {
         let server = MockServer::start().await;
 
         let market = Arc::new(
-            MarketApi::new(server.uri() + "/market", logger.clone())
-                .expect("should create market instance"),
+            MarketApi::new(
+                (server.uri() + "/market/")
+                    .parse()
+                    .expect("Wrong Market url"),
+                logger.clone(),
+            )
+            .expect("should create market instance"),
         );
 
         let categories: [&str; 3] = ["IAB3", "IAB13-7", "IAB5"];
@@ -897,8 +932,13 @@ mod units_for_slot_tests {
         let server = MockServer::start().await;
 
         let market = Arc::new(
-            MarketApi::new(server.uri() + "/market", logger.clone())
-                .expect("should create market instance"),
+            MarketApi::new(
+                (server.uri() + "/market/")
+                    .parse()
+                    .expect("Wrong Market url"),
+                logger.clone(),
+            )
+            .expect("should create market instance"),
         );
 
         let categories: [&str; 3] = ["IAB3", "IAB13-7", "IAB5"];

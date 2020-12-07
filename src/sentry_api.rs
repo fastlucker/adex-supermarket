@@ -7,13 +7,21 @@ use primitives::{
     },
     Channel, ValidatorDesc,
 };
-use reqwest::{Client, Error, Response};
+use reqwest::{Client, Response};
 use std::time::Duration;
+use thiserror::Error;
 use url::Url;
 
 #[derive(Debug, Clone)]
 pub struct SentryApi {
     client: Client,
+}
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("Parsing Validator Url: {0}")]
+    ParsingUrl(#[from] url::ParseError),
+    #[error("Request to Sentry: {0}")]
+    Reqwest(#[from] reqwest::Error),
 }
 
 /// SentryApi talks directly to Sentry
@@ -52,38 +60,43 @@ impl SentryApi {
 
         let url = format!(
             "{}/channel/list?{}",
-            validator,
+            validator.to_string().trim_end_matches('/'),
             serde_urlencoded::to_string(&query).expect("Should serialize")
         );
 
-        self.client
+        Ok(self
+            .client
             .get(&url)
             .send()
             .and_then(|res: Response| res.json::<ChannelListResponse>())
-            .await
+            .await?)
     }
 
     pub async fn get_last_approved(
         &self,
         validator: &ValidatorDesc,
     ) -> Result<LastApprovedResponse, Error> {
-        let url = format!("{}/last-approved?withHeartbeat=true", validator.url);
-        let response = self.client.get(&url).send().await?;
+        let url = format!(
+            "{}/last-approved?withHeartbeat=true",
+            validator.url.trim_end_matches('/')
+        );
 
-        response.json().await
+        Ok(self.client.get(&url).send().await?.json().await?)
     }
 
     pub async fn get_latest_new_state(
         &self,
         validator: &ValidatorDesc,
     ) -> Result<Option<ValidatorMessage>, Error> {
-        let url = format!(
+        let url = &format!(
             "{}/validator-messages/{}/NewState?limit=1",
-            validator.url, validator.id
+            validator.url.trim_end_matches('/'),
+            validator.id
         );
-        let response = self.client.get(&url).send().await?;
-        let response: ValidatorMessageResponse = response.json().await?;
+
+        let response: ValidatorMessageResponse = self.client.get(url).send().await?.json().await?;
         let message = response.validator_messages.into_iter().next();
+
         Ok(message)
     }
 }

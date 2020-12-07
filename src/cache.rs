@@ -587,6 +587,7 @@ mod test {
 
         Mock::given(method("GET"))
             .and(path("/leader/last-approved"))
+            .and(query_param("withHeartbeat", "true"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&leader_last_approved))
             // The second time we call is from the Follower Validator to get up to date Status of the Campaign
             .expect(2_u64)
@@ -602,6 +603,7 @@ mod test {
 
         Mock::given(method("GET"))
             .and(path("/follower/last-approved"))
+            .and(query_param("withHeartbeat", "true"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&follower_last_approved))
             .expect(2_u64)
             .mount(&mock_server)
