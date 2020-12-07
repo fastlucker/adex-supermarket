@@ -180,16 +180,10 @@ mod test {
         SentryApi,
     };
     use chrono::{Duration, Utc};
-    use primitives::{
-        sentry::{
+    use primitives::{Channel, sentry::{
             ChannelListResponse, LastApproved, LastApprovedResponse, NewStateValidatorMessage,
             ValidatorMessage, ValidatorMessageResponse,
-        },
-        util::tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_FOLLOWER, DUMMY_VALIDATOR_LEADER},
-        validator::{MessageTypes, NewState},
-        Channel,
-    };
-    use reqwest::Url;
+        }, util::{api::ApiUrl, tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_FOLLOWER, DUMMY_VALIDATOR_LEADER}}, validator::{MessageTypes, NewState}};
     use wiremock::{
         matchers::{method, path, query_param},
         Mock, MockServer, ResponseTemplate,
@@ -198,7 +192,7 @@ mod test {
     fn setup_cache(
         active: HashMap<ChannelId, Campaign>,
         finalized: HashSet<ChannelId>,
-        validators: HashSet<Url>,
+        validators: HashSet<ApiUrl>,
     ) -> Result<Cache<ApiClient>, Box<dyn std::error::Error>> {
         let sentry = SentryApi::new(std::time::Duration::from_secs(60))?;
         let logger = discard_logger();
@@ -217,7 +211,7 @@ mod test {
         })
     }
 
-    fn setup_channel(leader_url: &Url, follower_url: &Url) -> Channel {
+    fn setup_channel(leader_url: &ApiUrl, follower_url: &ApiUrl) -> Channel {
         let mut channel = DUMMY_CHANNEL.clone();
         let mut leader = DUMMY_VALIDATOR_LEADER.clone();
         leader.url = leader_url.to_string();

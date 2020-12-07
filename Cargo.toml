@@ -5,7 +5,7 @@ authors = ["Lachezar Lechev <lachezar@adex.network>"]
 edition = "2018"
 
 [dependencies]
-primitives = { git = "https://github.com/AdExNetwork/adex-validator-stack-rust", branch = "issue-340-re-think-targeting-input" }
+primitives = { git = "https://github.com/AdExNetwork/adex-validator-stack-rust", branch = "api-endpoint-url" }
 chrono = { version = "0.4" }
 futures = { version = "0.3" }
 async-trait = { version = "0.1.4" }

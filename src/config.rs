@@ -1,10 +1,9 @@
 use lazy_static::lazy_static;
-use primitives::BigNum;
+use primitives::{util::ApiUrl, BigNum};
 use serde::{Deserialize, Deserializer};
 use std::collections::HashSet;
 use std::fmt;
 use std::time::Duration;
-use url::Url;
 
 lazy_static! {
     pub static ref DEVELOPMENT: Config = {
@@ -19,7 +18,7 @@ lazy_static! {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Config {
-    pub validators: HashSet<Url>,
+    pub validators: HashSet<ApiUrl>,
     #[serde(deserialize_with = "seconds_to_std_duration")]
     /// (Now - Recency) determines if a DateTime is recent or not
     pub recency: Duration,

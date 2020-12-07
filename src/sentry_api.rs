@@ -5,12 +5,12 @@ use primitives::{
         channel_list::ChannelListQuery, ChannelListResponse, LastApprovedResponse,
         ValidatorMessage, ValidatorMessageResponse,
     },
+    util::ApiUrl,
     Channel, ValidatorDesc,
 };
 use reqwest::{Client, Response};
 use std::time::Duration;
 use thiserror::Error;
-use url::Url;
 
 #[derive(Debug, Clone)]
 pub struct SentryApi {
@@ -19,7 +19,7 @@ pub struct SentryApi {
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("Parsing Validator Url: {0}")]
-    ParsingUrl(#[from] url::ParseError),
+    ParsingUrl(#[from] primitives::util::api::Error),
     #[error("Request to Sentry: {0}")]
     Reqwest(#[from] reqwest::Error),
 }
@@ -32,7 +32,7 @@ impl SentryApi {
         Ok(Self { client })
     }
 
-    pub async fn get_validator_channels(&self, validator: &Url) -> Result<Vec<Channel>, Error> {
+    pub async fn get_validator_channels(&self, validator: &ApiUrl) -> Result<Vec<Channel>, Error> {
         let first_page = self.fetch_page(&validator, 0).await?;
 
         if first_page.total_pages < 2 {
@@ -50,7 +50,11 @@ impl SentryApi {
         }
     }
 
-    async fn fetch_page(&self, validator: &Url, page: u64) -> Result<ChannelListResponse, Error> {
+    async fn fetch_page(
+        &self,
+        validator: &ApiUrl,
+        page: u64,
+    ) -> Result<ChannelListResponse, Error> {
         let query = ChannelListQuery {
             page,
             valid_until_ge: Utc::now(),
@@ -58,15 +62,16 @@ impl SentryApi {
             validator: None,
         };
 
-        let url = format!(
-            "{}/channel/list?{}",
-            validator.to_string().trim_end_matches('/'),
-            serde_urlencoded::to_string(&query).expect("Should serialize")
-        );
+        let url = validator
+            .join(&format!(
+                "channel/list?{}",
+                serde_urlencoded::to_string(&query).expect("Should serialize")
+            ))
+            .expect("Url should be valid");
 
         Ok(self
             .client
-            .get(&url)
+            .get(url)
             .send()
             .and_then(|res: Response| res.json::<ChannelListResponse>())
             .await?)
@@ -76,12 +81,13 @@ impl SentryApi {
         &self,
         validator: &ValidatorDesc,
     ) -> Result<LastApprovedResponse, Error> {
-        let url = format!(
-            "{}/last-approved?withHeartbeat=true",
-            validator.url.trim_end_matches('/')
-        );
+        // if the validator API URL is wrong, return an error instead of `panic!`ing
+        let api_url = ApiUrl::parse(&validator.url)?;
 
-        Ok(self.client.get(&url).send().await?.json().await?)
+        // if the url is wrong `panic!`
+        let url = api_url.join("last-approved?withHeartbeat=true").expect("Url should be valid");
+
+        Ok(self.client.get(url).send().await?.json().await?)
     }
 
     pub async fn get_latest_new_state(
