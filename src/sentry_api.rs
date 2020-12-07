@@ -85,7 +85,9 @@ impl SentryApi {
         let api_url = ApiUrl::parse(&validator.url)?;
 
         // if the url is wrong `panic!`
-        let url = api_url.join("last-approved?withHeartbeat=true").expect("Url should be valid");
+        let url = api_url
+            .join("last-approved?withHeartbeat=true")
+            .expect("Url should be valid");
 
         Ok(self.client.get(url).send().await?.json().await?)
     }

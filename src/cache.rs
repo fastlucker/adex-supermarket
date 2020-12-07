@@ -180,10 +180,18 @@ mod test {
         SentryApi,
     };
     use chrono::{Duration, Utc};
-    use primitives::{Channel, sentry::{
+    use primitives::{
+        sentry::{
             ChannelListResponse, LastApproved, LastApprovedResponse, NewStateValidatorMessage,
             ValidatorMessage, ValidatorMessageResponse,
-        }, util::{api::ApiUrl, tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_FOLLOWER, DUMMY_VALIDATOR_LEADER}}, validator::{MessageTypes, NewState}};
+        },
+        util::{
+            api::ApiUrl,
+            tests::prep_db::{DUMMY_CHANNEL, DUMMY_VALIDATOR_FOLLOWER, DUMMY_VALIDATOR_LEADER},
+        },
+        validator::{MessageTypes, NewState},
+        Channel,
+    };
     use wiremock::{
         matchers::{method, path, query_param},
         Mock, MockServer, ResponseTemplate,
