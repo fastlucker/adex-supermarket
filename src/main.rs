@@ -3,9 +3,12 @@
 use std::net::SocketAddr;
 
 use clap::{crate_version, App, Arg};
-use supermarket::{serve, Config};
+use supermarket::{config::Environment, serve, Config};
 
 use slog::{info, Drain};
+use std::str::FromStr;
+
+const DEFAULT_PORT: u16 = 3000;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -31,17 +34,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("No market URL provided!")
         .to_string();
 
-    let environment = std::env::var("ENV").unwrap_or_else(|_| "development".into());
+    let environment = std::env::var("ENV")
+        .ok()
+        .map(|s| Environment::from_str(&s))
+        .transpose()?
+        .unwrap_or(Environment::Development);
+
+    let port = std::env::var("PORT")
+        .ok()
+        .map(|s| u16::from_str(&s))
+        .transpose()?
+        .unwrap_or(DEFAULT_PORT);
     let config_path = cli.value_of("config");
 
-    let config = Config::new(config_path, &environment)?;
+    let config = Config::new(config_path, environment)?;
 
     let logger = logger();
 
-    info!(&logger, "ENV: `{}`; {:#?}", environment, config);
+    info!(
+        &logger,
+        "ENV: `{}`; PORT: `{}`; {:#?}", environment, port, config
+    );
 
     // Construct our SocketAddr to listen on...
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
     info!(&logger, "Started at: {}", &addr);
 
     Ok(serve(addr, logger, market_url, config).await?)

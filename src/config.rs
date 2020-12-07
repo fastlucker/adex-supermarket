@@ -1,9 +1,7 @@
 use lazy_static::lazy_static;
 use primitives::BigNum;
 use serde::{Deserialize, Deserializer};
-use std::collections::HashSet;
-use std::fmt;
-use std::time::Duration;
+use std::{collections::HashSet, fmt, str::FromStr, time::Duration};
 use url::Url;
 
 lazy_static! {
@@ -15,6 +13,35 @@ lazy_static! {
         toml::from_str(include_str!("../config/prod.toml"))
             .expect("Failed to parse prod.toml config file")
     };
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Environment {
+    Development,
+    Production,
+}
+
+impl fmt::Display for Environment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Environment::Development => write!(f, "development"),
+            Environment::Production => write!(f, "production"),
+        }
+    }
+}
+
+impl FromStr for Environment {
+    type Err = Error;
+
+    fn from_str(environment: &str) -> Result<Self, Self::Err> {
+        match environment {
+            "development" => Ok(Environment::Development),
+            "production" => Ok(Environment::Production),
+            env => Err(Error::Environment {
+                actual: env.to_string(),
+            }),
+        }
+    }
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -32,18 +59,15 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn new(config_path: Option<&str>, environment: &str) -> Result<Config, Error> {
-        if let Some(path) = config_path {
-            let content = std::fs::read_to_string(path).map_err(Error::Io)?;
-            return toml::from_str(&content).map_err(Error::Toml);
-        }
+    pub fn new(config_path: Option<&str>, environment: Environment) -> Result<Config, Error> {
+        match (config_path, environment) {
+            (Some(path), _) => {
+                let content = std::fs::read_to_string(path).map_err(Error::Io)?;
 
-        match environment {
-            "development" => Ok(DEVELOPMENT.clone()),
-            "production" => Ok(PRODUCTION.clone()),
-            env => Err(Error::Environment {
-                actual: env.to_string(),
-            }),
+                toml::from_str(&content).map_err(Error::Toml)
+            }
+            (None, Environment::Development) => Ok(DEVELOPMENT.clone()),
+            (None, Environment::Production) => Ok(PRODUCTION.clone()),
         }
     }
 }
@@ -70,30 +94,19 @@ pub struct Timeouts {
     pub validator_request: Duration,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
-    Io(std::io::Error),
-    Toml(toml::de::Error),
+    #[error("File reading: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("Toml parsing: {0}")]
+    Toml(#[from] toml::de::Error),
+    #[error(
+        "Environment can only be {} or {}, actual: {actual}",
+        Environment::Development,
+        Environment::Production
+    )]
     Environment { actual: String },
 }
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use Error::*;
-
-        match self {
-            Io(err) => write!(f, "File reading: {}", err),
-            Toml(err) => write!(f, "Toml parsing: {}", err),
-            Environment { actual } => write!(
-                f,
-                "Environment can only be `development` or `production`, actual: {}",
-                actual
-            ),
-        }
-    }
-}
-
-impl std::error::Error for Error {}
 
 fn seconds_to_std_duration<'de, D>(deserializer: D) -> Result<Duration, D::Error>
 where
