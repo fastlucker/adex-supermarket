@@ -2,6 +2,7 @@ use primitives::{
     market::{Campaign, StatusType},
     supermarket::units_for_slot::response::AdUnit,
     AdSlot,
+    util::ApiUrl,
 };
 use reqwest::{Client, Error, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -9,7 +10,7 @@ use slog::{info, Logger};
 use std::fmt;
 use url::Url;
 
-pub type MarketUrl = Url;
+pub type MarketUrl = ApiUrl;
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Clone)]
