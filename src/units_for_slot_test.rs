@@ -25,7 +25,7 @@ mod units_for_slot_tests {
     use super::*;
     use chrono::DateTime;
     use http::header::USER_AGENT;
-    use primitives::{Channel, ChannelId};
+    use primitives::{Channel, ChannelId, targeting::Rules};
 
     // User Agent OS: Linux (only in `woothee`)
     // User Agent Browser Family: Firefox
@@ -236,7 +236,7 @@ mod units_for_slot_tests {
 
         channel.spec.ad_units = mock_channel_units();
         // NOTE: always set the spec.targeting_rules first
-        channel.spec.targeting_rules = rules.to_vec();
+        channel.spec.targeting_rules = Rules(rules.to_vec());
         channel.spec.min_per_impression = 100_000_000_000_000.into();
         channel.spec.max_per_impression = 1_000_000_000_000_000.into();
         channel.spec.active_from = Some(Utc.timestamp_millis(1_606_136_400_000));

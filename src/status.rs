@@ -172,7 +172,7 @@ pub async fn is_finalized(sentry: &SentryApi, channel: &Channel) -> Result<IsFin
     }
 
     let leader = channel.spec.validators.leader();
-    let leader_la = sentry.get_last_approved(&leader).await?;
+    let leader_la = sentry.get_last_approved(channel.id, &leader).await?;
 
     let total_balances: BigNum = leader_la
         .last_approved
@@ -221,7 +221,7 @@ pub async fn get_status(
     };
 
     let follower = channel.spec.validators.follower();
-    let follower_la = sentry.get_last_approved(&follower).await?;
+    let follower_la = sentry.get_last_approved(channel.id,&follower).await?;
 
     // setup the messages for the checks
     let messages = Messages {
@@ -271,7 +271,7 @@ pub async fn get_status(
 /// Calls SentryApi for the Leader's LastApproved NewState and returns the NewState Balance
 async fn fetch_balances(sentry: &SentryApi, channel: &Channel) -> Result<BalancesMap, Error> {
     let leader_la = sentry
-        .get_last_approved(&channel.spec.validators.leader())
+        .get_last_approved(channel.id,&channel.spec.validators.leader())
         .await?;
 
     let balances = leader_la
@@ -324,7 +324,7 @@ async fn is_rejected_state(
     };
 
     let latest_new_state = sentry
-        .get_latest_new_state(channel.spec.validators.leader())
+        .get_latest_new_state(channel.id,channel.spec.validators.leader())
         .await?;
 
     let latest_new_state = match latest_new_state {

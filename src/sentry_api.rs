@@ -1,13 +1,9 @@
 use chrono::Utc;
 use futures::future::{try_join_all, TryFutureExt};
-use primitives::{
-    sentry::{
+use primitives::{Channel, ChannelId, ValidatorDesc, sentry::{
         channel_list::ChannelListQuery, ChannelListResponse, LastApprovedResponse,
         ValidatorMessage, ValidatorMessageResponse,
-    },
-    util::ApiUrl,
-    Channel, ValidatorDesc,
-};
+    }, util::ApiUrl};
 use reqwest::{Client, Response};
 use std::time::Duration;
 use thiserror::Error;
@@ -79,6 +75,7 @@ impl SentryApi {
 
     pub async fn get_last_approved(
         &self,
+        channel_id: ChannelId,
         validator: &ValidatorDesc,
     ) -> Result<LastApprovedResponse, Error> {
         // if the validator API URL is wrong, return an error instead of `panic!`ing
@@ -86,7 +83,7 @@ impl SentryApi {
 
         // if the url is wrong `panic!`
         let url = api_url
-            .join("last-approved?withHeartbeat=true")
+            .join(&format!("channel/{}/last-approved?withHeartbeat=true", channel_id))
             .expect("Url should be valid");
 
         Ok(self.client.get(url).send().await?.json().await?)
@@ -94,11 +91,13 @@ impl SentryApi {
 
     pub async fn get_latest_new_state(
         &self,
+        channel_id: ChannelId,
         validator: &ValidatorDesc,
     ) -> Result<Option<ValidatorMessage>, Error> {
         let url = &format!(
-            "{}/validator-messages/{}/NewState?limit=1",
+            "{}/channel/{}/validator-messages/{}/NewState?limit=1",
             validator.url.trim_end_matches('/'),
+            channel_id,
             validator.id
         );
 

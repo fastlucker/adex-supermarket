@@ -244,6 +244,7 @@ mod test {
             .expect("Valid URL");
 
         let channel = setup_channel(&leader_url, &follower_url);
+        let channel_id = channel.id;
         let leader_id = channel.spec.validators.leader().id;
         let follower_id = channel.spec.validators.follower().id;
 
@@ -286,7 +287,11 @@ mod test {
             validator_messages: vec![ValidatorMessage {
                 from: follower_id,
                 received: Utc::now(),
-                msg: get_new_state_msg().msg,
+                msg: MessageTypes::NewState(NewState {
+                    signature: String::from("0x0"),
+                    state_root: String::from("0x0"),
+                    balances: expected_balances.clone(),
+                }),
             }],
         };
 
@@ -316,7 +321,8 @@ mod test {
             .await;
 
         Mock::given(method("GET"))
-            .and(path("/leader/last-approved"))
+            .and(path(format!("/leader/channel/{}/last-approved", channel_id)))
+            .and(query_param("withHeartbeat", "true"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&leader_last_approved))
             .expect(2_u64)
             .mount(&mock_server)
@@ -324,9 +330,11 @@ mod test {
 
         Mock::given(method("GET"))
             .and(path(format!(
-                "/leader/validator-messages/{}/NewState",
+                "/leader/channel/{}/validator-messages/{}/NewState",
+                channel_id,
                 leader_id
             )))
+            .and(query_param("limit" ,"1"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&leader_latest_new_state))
             .expect(2_u64)
             .mount(&mock_server)
@@ -340,7 +348,8 @@ mod test {
             .await;
 
         Mock::given(method("GET"))
-            .and(path("/follower/last-approved"))
+            .and(path(format!("/follower/channel/{}/last-approved", channel_id)))
+            .and(query_param("withHeartbeat", "true"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&follower_last_approved))
             .expect(2_u64)
             .mount(&mock_server)
@@ -418,14 +427,16 @@ mod test {
         };
 
         Mock::given(method("GET"))
-            .and(path("/leader/last-approved"))
+            .and(path(format!("/leader/channel/{}/last-approved", channel_id)))
+            .and(query_param("withHeartbeat", "true"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&leader_last_approved))
             .expect(1_u64)
             .mount(&mock_server)
             .await;
 
         Mock::given(method("GET"))
-            .and(path("/follower/last-approved"))
+            .and(path(format!("/follower/channel/{}/last-approved", channel_id)))
+            .and(query_param("withHeartbeat", "true"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&follower_last_approved))
             .expect(1_u64)
             .mount(&mock_server)
@@ -487,7 +498,8 @@ mod test {
         };
 
         Mock::given(method("GET"))
-            .and(path("/leader/last-approved"))
+        .and(path(format!("/leader/channel/{}/last-approved", channel_id)))
+        .and(query_param("withHeartbeat", "true"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&leader_last_approved))
             .expect(1_u64)
             .mount(&mock_server)
@@ -588,7 +600,7 @@ mod test {
             .await;
 
         Mock::given(method("GET"))
-            .and(path("/leader/last-approved"))
+            .and(path(format!("/leader/channel/{}/last-approved", channel_id)))
             .and(query_param("withHeartbeat", "true"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&leader_last_approved))
             // The second time we call is from the Follower Validator to get up to date Status of the Campaign
@@ -604,7 +616,7 @@ mod test {
             .await;
 
         Mock::given(method("GET"))
-            .and(path("/follower/last-approved"))
+            .and(path(format!("/follower/channel/{}/last-approved", channel_id)))
             .and(query_param("withHeartbeat", "true"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&follower_last_approved))
             .expect(2_u64)
@@ -706,7 +718,7 @@ mod test {
         };
 
         Mock::given(method("GET"))
-            .and(path("/leader/last-approved"))
+            .and(path(format!("/leader/channel/{}/last-approved", channel_id)))
             .and(query_param("withHeartbeat", "true"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&leader_last_approved))
             // The second time we call is from the Follower Validator to get up to date Status of the Campaign
