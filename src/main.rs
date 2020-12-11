@@ -1,14 +1,14 @@
 #![deny(clippy::all)]
 #![deny(rust_2018_idioms)]
-use std::net::SocketAddr;
-
 use clap::{crate_version, App, Arg};
 use supermarket::{config::Environment, serve, Config};
 
 use slog::{info, Drain};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 
 const DEFAULT_PORT: u16 = 3000;
+const DEFAULT_IP_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -46,6 +46,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|s| u16::from_str(&s))
         .transpose()?
         .unwrap_or(DEFAULT_PORT);
+
+    let ip_addr = std::env::var("IP_ADDR")
+        .map(|s| {
+            s.parse::<IpAddr>()
+                .expect("Invalid Ip address was provided")
+        })
+        .unwrap_or_else(|_| DEFAULT_IP_ADDR);
+
+    // Construct our SocketAddr to listen on...
+    let socket_addr: SocketAddr = (ip_addr, port).into();
+
     let config_path = cli.value_of("config");
 
     let config = Config::new(config_path, environment)?;
@@ -54,14 +65,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!(
         &logger,
-        "ENV: `{}`; PORT: `{}`; {:#?}", environment, port, config
+        "ENV: `{}`; IP_ADDR: `{}`; PORT: `{}`; {:#?}", environment, ip_addr, port, config
     );
 
-    // Construct our SocketAddr to listen on...
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
-    info!(&logger, "Started at: {}", &addr);
+    info!(&logger, "Web server listening on: {}", &socket_addr);
 
-    Ok(serve(addr, logger, market_url, config).await?)
+    Ok(serve(socket_addr, logger, market_url, config).await?)
 }
 
 pub fn logger() -> slog::Logger {

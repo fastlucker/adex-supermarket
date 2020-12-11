@@ -5,14 +5,15 @@ authors = ["Lachezar Lechev <lachezar@adex.network>"]
 edition = "2018"
 
 [dependencies]
-primitives = { git = "https://github.com/AdExNetwork/adex-validator-stack-rust", branch = "dev" }
+primitives = { git = "https://github.com/AdExNetwork/adex-validator-stack-rust", branch = "bugfixes" }
 chrono = { version = "0.4" }
 futures = { version = "0.3" }
 async-trait = { version = "^0.1" }
 thiserror = "^1.0"
 
 # Server
-tokio = { version = "0.2", features = ["macros", "rt-threaded", "sync"] }
+tokio = { version = "0.2", features = ["macros", "rt-threaded", "sync", "signal"] }
+hyper-tls = "0.4"
 hyper = { version = "0.13", features = ["stream"] }
 http = "0.2"
 
