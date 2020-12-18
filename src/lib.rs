@@ -7,7 +7,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use thiserror::Error;
 
-use http::{StatusCode, Uri};
+use http::{header::HOST, StatusCode, Uri};
 use slog::{error, info, Logger};
 
 pub mod cache;
@@ -140,6 +140,25 @@ async fn handle<C: cache::Client>(
             let uri = format!("{}{}", market.market_url, path_and_query);
 
             *req.uri_mut() = uri.parse::<Uri>()?;
+
+            // for Cloudflare we need to add a HOST header
+            let market_host_header = {
+                let url = market.market_url.to_url();
+                let host = url
+                    .host_str()
+                    .expect("MarketUrl always has a host")
+                    .to_string();
+
+                match url.port() {
+                    Some(port) => format!("{}:{}", host, port),
+                    None => host,
+                }
+            };
+
+            let host = market_host_header
+                .parse()
+                .expect("The MarketUrl should be valid HOST header");
+            req.headers_mut().insert(HOST, host);
 
             let proxy_response = match client.request(req).await {
                 Ok(response) => {
