@@ -370,7 +370,7 @@ mod test {
             .get(&channel.id)
             .expect("This Campaign should exist and should be active");
 
-        assert_eq!(Status::Waiting, active_campaign.status);
+        assert_eq!(Status::Active, active_campaign.status);
         assert_eq!(expected_balances, active_campaign.balances);
     }
 
