@@ -1,9 +1,13 @@
 use chrono::Utc;
 use futures::future::{try_join_all, TryFutureExt};
-use primitives::{Channel, ChannelId, ValidatorDesc, sentry::{
+use primitives::{
+    sentry::{
         channel_list::ChannelListQuery, ChannelListResponse, LastApprovedResponse,
         ValidatorMessage, ValidatorMessageResponse,
-    }, util::ApiUrl};
+    },
+    util::ApiUrl,
+    Channel, ChannelId, ValidatorDesc,
+};
 use reqwest::{Client, Response};
 use std::time::Duration;
 use thiserror::Error;
@@ -83,7 +87,10 @@ impl SentryApi {
 
         // if the url is wrong `panic!`
         let url = api_url
-            .join(&format!("channel/{}/last-approved?withHeartbeat=true", channel_id))
+            .join(&format!(
+                "channel/{}/last-approved?withHeartbeat=true",
+                channel_id
+            ))
             .expect("Url should be valid");
 
         Ok(self.client.get(url).send().await?.json().await?)

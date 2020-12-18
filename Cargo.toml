@@ -28,8 +28,8 @@ clap = "2.33"
 toml = "0.5"
 
 # Logging
-slog = { version = "2.5" }
-slog-term = "2.5"
+slog = { version = "2.7" }
+slog-term = "2.6"
 slog-async = "2.5"
 # Other
 lazy_static = "1.4"

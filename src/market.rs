@@ -1,14 +1,7 @@
-use primitives::{
-    market::{Campaign, StatusType},
-    supermarket::units_for_slot::response::AdUnit,
-    AdSlot,
-    util::ApiUrl,
-};
+use primitives::{AdSlot, AdUnit, market::{AdSlotResponse, AdUnitResponse, AdUnitsResponse, Campaign, StatusType}, util::ApiUrl};
 use reqwest::{Client, Error, StatusCode};
-use serde::{Deserialize, Serialize};
 use slog::{info, Logger};
 use std::fmt;
-use url::Url;
 
 pub type MarketUrl = ApiUrl;
 pub type Result<T> = std::result::Result<T, Error>;
@@ -18,21 +11,6 @@ pub struct MarketApi {
     pub market_url: MarketUrl,
     client: Client,
     logger: Logger,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", from = "ad_slot::ShimResponse", into = "ad_slot::ShimResponse")]
-pub struct AdSlotResponse {
-    pub slot: AdSlot,
-    pub accepted_referrers: Vec<Url>,
-    pub categories: Vec<String>,
-    pub alexa_rank: Option<f64>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AdUnitResponse {
-    pub unit: AdUnit,
 }
 
 /// Should we query All or only certain statuses
@@ -152,9 +130,9 @@ impl MarketApi {
 
         let response = self.client.get(url).send().await?;
 
-        let ad_units: Vec<AdUnit> = response.json().await?;
+        let ad_units: AdUnitsResponse = response.json().await?;
 
-        Ok(ad_units)
+        Ok(ad_units.0)
     }
 
     pub async fn fetch_campaigns(&self, statuses: &Statuses<'_>) -> Result<Vec<Campaign>> {
@@ -214,116 +192,3 @@ impl MarketApi {
     }
 }
 
-mod ad_slot {
-    use std::collections::HashMap;
-
-    use chrono::{DateTime, Utc};
-    use reqwest::Url;
-    use serde::{Serialize, Deserialize};
-
-    use primitives::{BigNum, AdSlot, ValidatorId, targeting::Rule};
-
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-    #[serde(rename_all = "camelCase")]
-    pub struct ShimResponse {
-        pub slot: Shim,
-        pub accepted_referrers: Vec<Url>,
-        pub categories: Vec<String>,
-        pub alexa_rank: Option<f64>,
-    }
-
-    impl From<super::AdSlotResponse> for ShimResponse {
-        fn from(response: super::AdSlotResponse) -> Self {
-            Self {
-                slot: Shim::from(response.slot),
-                accepted_referrers: response.accepted_referrers,
-                categories: response.categories,
-                alexa_rank: response.alexa_rank,
-            }
-        }
-    }
-
-    impl From<ShimResponse> for super::AdSlotResponse {
-        fn from(shim_response: ShimResponse) -> Self {
-            Self {
-                slot: shim_response.slot.into(),
-                accepted_referrers: shim_response.accepted_referrers,
-                categories: shim_response.categories,
-                alexa_rank: shim_response.alexa_rank,
-            }
-        }
-    }
-
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-    #[serde(rename_all = "camelCase")]
-    /// This AdSlot Shim has only one difference with the Validator `primitives::AdSlot`
-    /// The `created` and `modified` timestamps here are in strings (see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/Date#Timestamp_string),
-    /// instead of being millisecond timestamps
-    pub struct Shim {
-        pub ipfs: String,
-        #[serde(rename = "type")]
-        pub ad_type: String,
-        #[serde(default)]
-        pub min_per_impression: Option<HashMap<String, BigNum>>,
-        #[serde(default)]
-        pub rules: Vec<Rule>,
-        #[serde(default)]
-        pub fallback_unit: Option<String>,
-        pub owner: ValidatorId,
-        /// DateTime uses `RFC 3339` by default
-        /// This is not the usual `milliseconds timestamp`
-        /// as the original
-        pub created: DateTime<Utc>,
-        #[serde(default)]
-        pub title: Option<String>,
-        #[serde(default)]
-        pub description: Option<String>,
-        #[serde(default)]
-        pub website: Option<String>,
-        #[serde(default)]
-        pub archived: bool,
-        /// DateTime uses `RFC 3339` by default
-        /// This is not the usual `milliseconds timestamp`
-        /// as the original
-        pub modified: Option<DateTime<Utc>>,
-    }
-
-    impl From<AdSlot> for Shim {
-        fn from(ad_slot: AdSlot) -> Self {
-            Self {
-                ipfs: ad_slot.ipfs,
-                ad_type: ad_slot.ad_type,
-                min_per_impression: ad_slot.min_per_impression,
-                rules: ad_slot.rules,
-                fallback_unit: ad_slot.fallback_unit,
-                owner: ad_slot.owner,
-                created: ad_slot.created,
-                title: ad_slot.title,
-                description: ad_slot.description,
-                website: ad_slot.website,
-                archived: ad_slot.archived,
-                modified: ad_slot.modified
-            }
-        }
-    }
-
-    impl Into<AdSlot> for Shim {
-        fn into(self) -> AdSlot {
-            AdSlot {
-                ipfs: self.ipfs,
-                ad_type: self.ad_type,
-                min_per_impression: self.min_per_impression,
-                rules: self.rules,
-                fallback_unit: self.fallback_unit,
-                owner: self.owner,
-                created: self.created,
-                title: self.title,
-                description: self.description,
-                website: self.website,
-                archived: self.archived,
-                modified: self.modified,
-                
-            }
-        }
-    }
-}

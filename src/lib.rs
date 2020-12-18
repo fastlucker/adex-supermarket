@@ -1,7 +1,7 @@
 #![deny(clippy::all)]
 #![deny(rust_2018_idioms)]
 pub use cache::Cache;
-use hyper::{Body, Method, Request, Response, Server, Client};
+use hyper::{Body, Client, Method, Request, Response, Server};
 use hyper_tls::HttpsConnector;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -104,7 +104,6 @@ pub async fn serve(
         error!(&logger, "server error: {}", e);
     }
 
-
     Ok(())
 }
 
@@ -131,7 +130,10 @@ async fn handle<C: cache::Client>(
                 .map(|p_q| {
                     let string = p_q.to_string();
                     // the MarketUrl (i.e. ApiUrl) always suffixes the path
-                    string.strip_prefix('/').map(ToString::to_string).unwrap_or(string)
+                    string
+                        .strip_prefix('/')
+                        .map(ToString::to_string)
+                        .unwrap_or(string)
                 })
                 .unwrap_or_default();
 
