@@ -1,20 +1,19 @@
 use crate::{
     cache::{Cache, Campaign, Client},
-    market::AdSlotResponse,
     not_found, service_unavailable,
     status::Status,
     Config, Error, MarketApi, ROUTE_UNITS_FOR_SLOT,
 };
 use chrono::Utc;
-use http::header::HeaderName;
+use http::header::{HeaderName, CONTENT_TYPE};
 use hyper::{header::USER_AGENT, Body, Request, Response};
 use input::Input;
 use primitives::{
+    market::AdSlotResponse,
     supermarket::units_for_slot::response,
-    supermarket::units_for_slot::response::{AdUnit, Response as UnitsForSlotResponse},
-    targeting::eval_with_callback,
-    targeting::{get_pricing_bounds, input, Output},
-    ValidatorId,
+    supermarket::units_for_slot::response::Response as UnitsForSlotResponse,
+    targeting::{eval_with_callback, get_pricing_bounds, input, Output},
+    AdUnit, ValidatorId,
 };
 use slog::{error, info, warn, Logger};
 use std::sync::Arc;
@@ -71,7 +70,7 @@ pub async fn get_units_for_slot<C: Client>(
         };
 
         let accepted_referrers = ad_slot_response.accepted_referrers.clone();
-        let units_ipfses: Vec<String> = units.iter().map(|au| au.id.to_string()).collect();
+        let units_ipfses: Vec<String> = units.iter().map(|au| au.ipfs.to_string()).collect();
         let fallback_unit: Option<AdUnit> = match ad_slot_response.slot.fallback_unit.as_ref() {
             Some(unit_ipfs) => {
                 let ad_unit_response = match market.fetch_unit(&unit_ipfs).await {
@@ -170,7 +169,7 @@ pub async fn get_units_for_slot<C: Client>(
         let campaigns_limited_by_earner =
             get_campaigns(cache, config, &deposit_assets, publisher_id).await;
 
-        info!(&logger, "Fetched Cache campaigns"; "length" => campaigns_limited_by_earner.len(), "publisher_id" => %publisher_id);
+        info!(&logger, "Fetched Cache campaigns limited by earner (publisher)"; "length" => campaigns_limited_by_earner.len(), "publisher_id" => %publisher_id);
 
         // We return those in the result (which means AdView would have those) but we don't actually use them
         // we do that in order to have the same variables as the validator, so that the `price` is the same
@@ -186,11 +185,10 @@ pub async fn get_units_for_slot<C: Client>(
                 ad_slot_id: ad_slot_response.slot.ipfs.clone(),
                 ad_slot_type: ad_slot_response.slot.ad_type.clone(),
                 publisher_id,
-                country: country.clone(),
+                country,
                 event_type: "IMPRESSION".to_string(),
-                // TODO: Replace with [unsigned_abs](https://doc.rust-lang.org/std/primitive.i64.html#method.unsigned_abs) once it's stabilized
                 seconds_since_epoch: Utc::now(),
-                user_agent_os: user_agent_os.clone(),
+                user_agent_os,
                 user_agent_browser_family: user_agent_browser_family.clone(),
             },
             ad_unit_id: None,
@@ -214,10 +212,14 @@ pub async fn get_units_for_slot<C: Client>(
             targeting_input_base,
             accepted_referrers,
             campaigns,
-            fallback_unit,
+            fallback_unit: fallback_unit.map(|ad_unit| response::AdUnit::from(&ad_unit)),
         };
 
-        Ok(Response::new(Body::from(serde_json::to_string(&response)?)))
+        Ok(Response::builder()
+            .status(http::StatusCode::OK)
+            .header(CONTENT_TYPE, "application/json")
+            .body(Body::from(serde_json::to_string(&response)?))
+            .expect("Should create response"))
     }
 }
 
@@ -236,7 +238,8 @@ async fn get_campaigns<C: Client>(
                 // The Supermarket has the Active status combining Active & Ready from Market
                 if campaign.status == Status::Active
                     && campaign.channel.creator != publisher_id
-                    && deposit_assets.contains(&campaign.channel.deposit_asset)
+                    && (deposit_assets.is_empty()
+                        || deposit_assets.contains(&campaign.channel.deposit_asset))
                 {
                     Some(campaign)
                 } else {

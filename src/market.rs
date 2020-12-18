@@ -1,4 +1,8 @@
-use primitives::{AdSlot, AdUnit, market::{AdSlotResponse, AdUnitResponse, AdUnitsResponse, Campaign, StatusType}, util::ApiUrl};
+use primitives::{
+    market::{AdSlotResponse, AdUnitResponse, AdUnitsResponse, Campaign, StatusType},
+    util::ApiUrl,
+    AdSlot, AdUnit,
+};
 use reqwest::{Client, Error, StatusCode};
 use slog::{info, Logger};
 use std::fmt;
@@ -191,4 +195,3 @@ impl MarketApi {
         Ok(campaigns)
     }
 }
-
