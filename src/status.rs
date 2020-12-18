@@ -221,7 +221,7 @@ pub async fn get_status(
     };
 
     let follower = channel.spec.validators.follower();
-    let follower_la = sentry.get_last_approved(channel.id,&follower).await?;
+    let follower_la = sentry.get_last_approved(channel.id, &follower).await?;
 
     // setup the messages for the checks
     let messages = Messages {
@@ -260,8 +260,14 @@ pub async fn get_status(
         return Ok((status, messages.get_leader_new_state_balances()));
     }
 
+    let channel_active_from = match channel.spec.active_from {
+        Some(active_from) if active_from < Utc::now() => true,
+        None => true,
+        _ => false,
+    };
+
     // isActive & isReady (we don't need distinguish between Active & Ready here)
-    if is_active(&messages) && is_ready(&messages) {
+    if is_active(&messages) || (is_ready(&messages) && channel_active_from) {
         Ok((Status::Active, messages.get_leader_new_state_balances()))
     } else {
         Ok((Status::Waiting, messages.get_leader_new_state_balances()))
@@ -271,7 +277,7 @@ pub async fn get_status(
 /// Calls SentryApi for the Leader's LastApproved NewState and returns the NewState Balance
 async fn fetch_balances(sentry: &SentryApi, channel: &Channel) -> Result<BalancesMap, Error> {
     let leader_la = sentry
-        .get_last_approved(channel.id,&channel.spec.validators.leader())
+        .get_last_approved(channel.id, &channel.spec.validators.leader())
         .await?;
 
     let balances = leader_la
@@ -324,7 +330,7 @@ async fn is_rejected_state(
     };
 
     let latest_new_state = sentry
-        .get_latest_new_state(channel.id,channel.spec.validators.leader())
+        .get_latest_new_state(channel.id, channel.spec.validators.leader())
         .await?;
 
     let latest_new_state = match latest_new_state {
