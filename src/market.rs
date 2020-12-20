@@ -1,15 +1,13 @@
 use primitives::{
-    market::{Campaign, StatusType},
-    supermarket::units_for_slot::response::AdUnit,
-    AdSlot,
+    market::{AdSlotResponse, AdUnitResponse, AdUnitsResponse, Campaign, StatusType},
+    util::ApiUrl,
+    AdSlot, AdUnit,
 };
 use reqwest::{Client, Error, StatusCode};
-use serde::{Deserialize, Serialize};
 use slog::{info, Logger};
 use std::fmt;
-use url::Url;
 
-pub type MarketUrl = Url;
+pub type MarketUrl = ApiUrl;
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Clone)]
@@ -19,19 +17,26 @@ pub struct MarketApi {
     logger: Logger,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AdSlotResponse {
-    pub slot: AdSlot,
-    pub accepted_referrers: Vec<Url>,
-    pub categories: Vec<String>,
-    pub alexa_rank: Option<f64>,
+/// Should we query All or only certain statuses
+#[derive(Debug)]
+pub enum Statuses<'a> {
+    All,
+    Only(&'a [StatusType]),
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AdUnitResponse {
-    pub unit: AdUnit,
+impl fmt::Display for Statuses<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use Statuses::*;
+
+        match self {
+            All => write!(f, "all"),
+            Only(statuses) => {
+                let statuses = statuses.iter().map(ToString::to_string).collect::<Vec<_>>();
+
+                write!(f, "status={}", statuses.join(","))
+            }
+        }
+    }
 }
 
 impl MarketApi {
@@ -129,9 +134,9 @@ impl MarketApi {
 
         let response = self.client.get(url).send().await?;
 
-        let ad_units: Vec<AdUnit> = response.json().await?;
+        let ad_units: AdUnitsResponse = response.json().await?;
 
-        Ok(ad_units)
+        Ok(ad_units.0)
     }
 
     pub async fn fetch_campaigns(&self, statuses: &Statuses<'_>) -> Result<Vec<Campaign>> {
@@ -188,27 +193,5 @@ impl MarketApi {
         );
 
         Ok(campaigns)
-    }
-}
-
-/// Should we query All or only certain statuses
-#[derive(Debug)]
-pub enum Statuses<'a> {
-    All,
-    Only(&'a [StatusType]),
-}
-
-impl fmt::Display for Statuses<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use Statuses::*;
-
-        match self {
-            All => write!(f, "all"),
-            Only(statuses) => {
-                let statuses = statuses.iter().map(ToString::to_string).collect::<Vec<_>>();
-
-                write!(f, "status={}", statuses.join(","))
-            }
-        }
     }
 }

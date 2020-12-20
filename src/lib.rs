@@ -1,12 +1,13 @@
 #![deny(clippy::all)]
 #![deny(rust_2018_idioms)]
 pub use cache::Cache;
-use hyper::{client::HttpConnector, Body, Method, Request, Response, Server};
+use hyper::{Body, Client, Method, Request, Response, Server};
+use hyper_tls::HttpsConnector;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use thiserror::Error;
 
-use http::{StatusCode, Uri};
+use http::{header::HOST, StatusCode, Uri};
 use slog::{error, info, Logger};
 
 pub mod cache;
@@ -24,6 +25,9 @@ pub use config::{Config, Timeouts};
 pub use sentry_api::SentryApi;
 
 pub(crate) static ROUTE_UNITS_FOR_SLOT: &str = "/units-for-slot/";
+
+// Uses Https Client
+type HyperClient = Client<HttpsConnector<hyper::client::connect::HttpConnector>>;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -56,7 +60,9 @@ pub async fn serve(
 ) -> Result<(), Error> {
     use hyper::service::{make_service_fn, service_fn};
 
-    let client = hyper::Client::new();
+    let https = HttpsConnector::new();
+    let client: HyperClient = Client::builder().build(https);
+
     let market = Arc::new(MarketApi::new(market_url, logger.clone())?);
 
     let cache = spawn_fetch_campaigns(logger.clone(), config.clone()).await?;
@@ -91,8 +97,10 @@ pub async fn serve(
     // Then bind and serve...
     let server = Server::bind(&addr).serve(make_service);
 
+    let graceful = server.with_graceful_shutdown(shutdown_signal());
+
     // And run forever...
-    if let Err(e) = server.await {
+    if let Err(e) = graceful.await {
         error!(&logger, "server error: {}", e);
     }
 
@@ -103,7 +111,7 @@ async fn handle<C: cache::Client>(
     mut req: Request<Body>,
     config: Config,
     cache: Cache<C>,
-    client: hyper::Client<HttpConnector>,
+    client: HyperClient,
     logger: Logger,
     market: Arc<MarketApi>,
 ) -> Result<Response<Body>, Error> {
@@ -114,19 +122,43 @@ async fn handle<C: cache::Client>(
             get_units_for_slot(&logger, market.clone(), &config, &cache, req).await
         }
         (_, method) => {
-            use http::uri::PathAndQuery;
-
             let method = method.clone();
 
             let path_and_query = req
                 .uri()
                 .path_and_query()
-                .map(ToOwned::to_owned)
-                .unwrap_or_else(|| PathAndQuery::from_static(""));
+                .map(|p_q| {
+                    let string = p_q.to_string();
+                    // the MarketUrl (i.e. ApiUrl) always suffixes the path
+                    string
+                        .strip_prefix('/')
+                        .map(ToString::to_string)
+                        .unwrap_or(string)
+                })
+                .unwrap_or_default();
 
             let uri = format!("{}{}", market.market_url, path_and_query);
 
             *req.uri_mut() = uri.parse::<Uri>()?;
+
+            // for Cloudflare we need to add a HOST header
+            let market_host_header = {
+                let url = market.market_url.to_url();
+                let host = url
+                    .host_str()
+                    .expect("MarketUrl always has a host")
+                    .to_string();
+
+                match url.port() {
+                    Some(port) => format!("{}:{}", host, port),
+                    None => host,
+                }
+            };
+
+            let host = market_host_header
+                .parse()
+                .expect("The MarketUrl should be valid HOST header");
+            req.headers_mut().insert(HOST, host);
 
             let proxy_response = match client.request(req).await {
                 Ok(response) => {
@@ -144,6 +176,13 @@ async fn handle<C: cache::Client>(
             Ok(proxy_response)
         }
     }
+}
+
+async fn shutdown_signal() {
+    // Wait for the CTRL+C signal
+    tokio::signal::ctrl_c()
+        .await
+        .expect("failed to install CTRL+C signal handler");
 }
 
 async fn spawn_fetch_campaigns(

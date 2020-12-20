@@ -5,16 +5,13 @@ use http::request::Request;
 use hyper::Body;
 use primitives::{
     supermarket::units_for_slot::response::{
-        AdUnit, Campaign as ResponseCampaign, Channel as ResponseChannel, UnitsWithPrice,
+        Campaign as ResponseCampaign, Channel as ResponseChannel, UnitsWithPrice,
     },
     targeting::{input, Function, Rule, Value},
-    util::tests::prep_db::{DUMMY_CHANNEL, IDS},
-    AdSlot, BigNum, IPFS,
+    util::tests::prep_db::{DUMMY_AD_UNITS, DUMMY_CHANNEL, IDS},
+    AdSlot, BigNum,
 };
-use std::iter::Iterator;
-use std::str::FromStr;
-use std::sync::Arc;
-use std::{collections::HashMap, convert::TryFrom};
+use std::{collections::HashMap, iter::Iterator, str::FromStr, sync::Arc};
 use url::Url;
 use wiremock::{
     matchers::{method, path},
@@ -22,10 +19,11 @@ use wiremock::{
 };
 
 mod units_for_slot_tests {
+
     use super::*;
     use chrono::DateTime;
     use http::header::USER_AGENT;
-    use primitives::{Channel, ChannelId};
+    use primitives::{market::AdUnitsResponse, targeting::Rules, Channel, ChannelId};
 
     // User Agent OS: Linux (only in `woothee`)
     // User Agent Browser Family: Firefox
@@ -34,8 +32,9 @@ mod units_for_slot_tests {
     // uses two-letter country codes: https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2
     const TEST_CLOUDFLARE_IPCOUNTY: &str = "BG";
 
-    fn get_mock_campaign(channel: Channel, units: &[AdUnit]) -> ResponseCampaign {
-        let units_with_price = get_units_with_price(&channel, &units);
+    /// Uses the Channel AdUnits as UnitsWithPrice for the response
+    fn get_mock_campaign(channel: Channel) -> ResponseCampaign {
+        let units_with_price = get_units_with_price(&channel);
         let targeting_rules = channel.spec.targeting_rules.clone();
         ResponseCampaign {
             channel: ResponseChannel::from(channel),
@@ -44,48 +43,16 @@ mod units_for_slot_tests {
         }
     }
 
-    fn get_units_with_price(channel: &Channel, units: &[AdUnit]) -> Vec<UnitsWithPrice> {
-        units
+    fn get_units_with_price(channel: &Channel) -> Vec<UnitsWithPrice> {
+        channel
+            .spec
+            .ad_units
             .iter()
-            .cloned()
             .map(|u| UnitsWithPrice {
-                unit: u,
+                unit: u.into(),
                 price: channel.spec.min_per_impression.clone(),
             })
             .collect()
-    }
-
-    fn get_supermarket_ad_units() -> Vec<AdUnit> {
-        vec![
-            AdUnit {
-                id: IPFS::try_from("Qmasg8FrbuSQpjFu3kRnZF9beg8rEBFrqgi1uXDRwCbX5f")
-                    .expect("should convert"),
-                media_url: "ipfs://QmcUVX7fvoLMM93uN2bD3wGTH8MXSxeL8hojYfL2Lhp7mR".to_string(),
-                media_mime: "image/jpeg".to_string(),
-                target_url: "https://www.adex.network/?stremio-test-banner-1".to_string(),
-            },
-            AdUnit {
-                id: IPFS::try_from("QmVhRDGXoM3Fg3HZD5xwMuxtb9ZErwC8wHt8CjsfxaiUbZ")
-                    .expect("should convert"),
-                media_url: "ipfs://QmQB7uz7Gxfy7wqAnrnBcZFaVJLos8J9gn8mRcHQU6dAi1".to_string(),
-                media_mime: "image/jpeg".to_string(),
-                target_url: "https://www.adex.network/?adex-campaign=true&pub=stremio".to_string(),
-            },
-            AdUnit {
-                id: IPFS::try_from("QmYwcpMjmqJfo9ot1jGe9rfXsszFV1WbEA59QS7dEVHfJi")
-                    .expect("should convert"),
-                media_url: "ipfs://QmQB7uz7Gxfy7wqAnrnBcZFaVJLos8J9gn8mRcHQU6dAi1".to_string(),
-                media_mime: "image/jpeg".to_string(),
-                target_url: "https://www.adex.network/?adex-campaign=true".to_string(),
-            },
-            AdUnit {
-                id: IPFS::try_from("QmTAF3FsFDS7Ru8WChoD9ofiHTH8gAQfR4mYSnwxqTDpJH")
-                    .expect("should convert"),
-                media_url: "ipfs://QmQAcfBJpDDuH99A4p3pFtUmQwamS8UYStP5HxHC7bgYXY".to_string(),
-                media_mime: "image/jpeg".to_string(),
-                target_url: "https://adex.network".to_string(),
-            },
-        ]
     }
 
     fn get_mock_rules(categories: &[&str]) -> Vec<Rule> {
@@ -166,80 +133,16 @@ mod units_for_slot_tests {
         }
     }
 
-    fn mock_channel_units() -> Vec<primitives::AdUnit> {
-        vec![
-            primitives::AdUnit {
-                ipfs: IPFS::try_from("Qmasg8FrbuSQpjFu3kRnZF9beg8rEBFrqgi1uXDRwCbX5f")
-                    .expect("should convert"),
-                media_url: "ipfs://QmcUVX7fvoLMM93uN2bD3wGTH8MXSxeL8hojYfL2Lhp7mR".to_string(),
-                media_mime: "image/jpeg".to_string(),
-                target_url: "https://www.adex.network/?stremio-test-banner-1".to_string(),
-                archived: false,
-                description: Some("test description".to_string()),
-                ad_type: "legacy_250x250".to_string(),
-                created: Utc.timestamp(1_564_383_600, 0),
-                min_targeting_score: Some(1.00),
-                modified: None,
-                owner: IDS["publisher"],
-                title: Some("test title".to_string()),
-            },
-            primitives::AdUnit {
-                ipfs: IPFS::try_from("QmVhRDGXoM3Fg3HZD5xwMuxtb9ZErwC8wHt8CjsfxaiUbZ")
-                    .expect("should convert"),
-                media_url: "ipfs://QmQB7uz7Gxfy7wqAnrnBcZFaVJLos8J9gn8mRcHQU6dAi1".to_string(),
-                media_mime: "image/jpeg".to_string(),
-                target_url: "https://www.adex.network/?adex-campaign=true&pub=stremio".to_string(),
-                archived: false,
-                description: Some("test description".to_string()),
-                ad_type: "legacy_250x250".to_string(),
-                created: Utc.timestamp(1_564_383_600, 0),
-                min_targeting_score: Some(1.00),
-                modified: None,
-                owner: IDS["publisher"],
-                title: Some("test title".to_string()),
-            },
-            primitives::AdUnit {
-                ipfs: IPFS::try_from("QmYwcpMjmqJfo9ot1jGe9rfXsszFV1WbEA59QS7dEVHfJi")
-                    .expect("should convert"),
-                media_url: "ipfs://QmQB7uz7Gxfy7wqAnrnBcZFaVJLos8J9gn8mRcHQU6dAi1".to_string(),
-                media_mime: "image/jpeg".to_string(),
-                target_url: "https://www.adex.network/?adex-campaign=true".to_string(),
-                archived: false,
-                description: Some("test description".to_string()),
-                ad_type: "legacy_250x250".to_string(),
-                created: Utc.timestamp(1_564_383_600, 0),
-                min_targeting_score: Some(1.00),
-                modified: None,
-                owner: IDS["publisher"],
-                title: Some("test title".to_string()),
-            },
-            primitives::AdUnit {
-                ipfs: IPFS::try_from("QmTAF3FsFDS7Ru8WChoD9ofiHTH8gAQfR4mYSnwxqTDpJH")
-                    .expect("should convert"),
-                media_url: "ipfs://QmQAcfBJpDDuH99A4p3pFtUmQwamS8UYStP5HxHC7bgYXY".to_string(),
-                media_mime: "image/jpeg".to_string(),
-                target_url: "https://adex.network".to_string(),
-                archived: false,
-                description: Some("test description".to_string()),
-                ad_type: "legacy_250x250".to_string(),
-                created: Utc.timestamp(1_564_383_600, 0),
-                min_targeting_score: Some(1.00),
-                modified: None,
-                owner: IDS["publisher"],
-                title: Some("test title".to_string()),
-            },
-        ]
-    }
-
     fn mock_channel(rules: &[Rule]) -> Channel {
         let mut channel = DUMMY_CHANNEL.clone();
 
-        channel.spec.ad_units = mock_channel_units();
+        channel.spec.ad_units = DUMMY_AD_UNITS.to_vec();
         // NOTE: always set the spec.targeting_rules first
-        channel.spec.targeting_rules = rules.to_vec();
+        channel.spec.targeting_rules = Rules(rules.to_vec());
         channel.spec.min_per_impression = 100_000_000_000_000.into();
         channel.spec.max_per_impression = 1_000_000_000_000_000.into();
-        channel.spec.active_from = Some(Utc.timestamp_millis(1_606_136_400_000));
+        // Timestamp: 1_606_136_400_000
+        channel.spec.active_from = Some(Utc.ymd(2020, 11, 23).and_hms(15, 0, 0));
 
         channel
     }
@@ -311,12 +214,20 @@ mod units_for_slot_tests {
 
         let mock_cache = Cache::initialize(mock_client).await;
 
-        let ad_units = get_supermarket_ad_units();
+        let market_ad_units = AdUnitsResponse(
+            channel
+                .spec
+                .ad_units
+                .clone()
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        );
         let mock_slot = get_supermarket_ad_slot(&rules, &categories);
 
         Mock::given(method("GET"))
             .and(path("/market/units"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(&ad_units))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&market_ad_units))
             .mount(&server)
             .await;
 
@@ -325,7 +236,8 @@ mod units_for_slot_tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(&mock_slot))
             .mount(&server)
             .await;
-        let campaign = get_mock_campaign(channel.clone(), &ad_units);
+
+        let campaign = get_mock_campaign(channel.clone());
 
         let request = Request::get(format!(
             "/units-for-slot/{}?depositAsset={}",
@@ -403,12 +315,20 @@ mod units_for_slot_tests {
 
         let mock_cache = Cache::initialize(mock_client).await;
 
-        let ad_units = get_supermarket_ad_units();
+        let market_ad_units = AdUnitsResponse(
+            channel
+                .spec
+                .ad_units
+                .clone()
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        );
         let mock_slot = get_supermarket_ad_slot(&rules, &categories);
 
         Mock::given(method("GET"))
             .and(path("/market/units"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(&ad_units))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&market_ad_units))
             .mount(&server)
             .await;
 
@@ -483,6 +403,7 @@ mod units_for_slot_tests {
         let rules = get_mock_rules(&categories);
         let mut channel = mock_channel(&rules);
         channel.creator = IDS["publisher"];
+
         let config = crate::config::DEVELOPMENT.clone();
         let mock_client = MockClient::init(
             vec![mock_cache_campaign(channel.clone(), Status::Active)],
@@ -493,12 +414,20 @@ mod units_for_slot_tests {
 
         let mock_cache = Cache::initialize(mock_client).await;
 
-        let ad_units = get_supermarket_ad_units();
+        let market_ad_units = AdUnitsResponse(
+            channel
+                .spec
+                .ad_units
+                .clone()
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        );
         let mock_slot = get_supermarket_ad_slot(&rules, &categories);
 
         Mock::given(method("GET"))
             .and(path("/market/units"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(&ad_units))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&market_ad_units))
             .mount(&server)
             .await;
 
@@ -585,12 +514,20 @@ mod units_for_slot_tests {
 
         let mock_cache = Cache::initialize(mock_client).await;
 
-        let ad_units: Vec<AdUnit> = get_supermarket_ad_units();
+        let market_ad_units = AdUnitsResponse(
+            channel
+                .spec
+                .ad_units
+                .clone()
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        );
         let mock_slot = get_supermarket_ad_slot(&rules, &categories);
 
         Mock::given(method("GET"))
             .and(path("/market/units"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(&ad_units))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&market_ad_units))
             .mount(&server)
             .await;
 
@@ -675,12 +612,20 @@ mod units_for_slot_tests {
 
         let mock_cache = Cache::initialize(mock_client).await;
 
-        let ad_units = get_supermarket_ad_units();
+        let market_ad_units = AdUnitsResponse(
+            channel
+                .spec
+                .ad_units
+                .clone()
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        );
         let mock_slot = get_supermarket_ad_slot(&rules, &categories);
 
         Mock::given(method("GET"))
             .and(path("/market/units"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(&ad_units))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&market_ad_units))
             .mount(&server)
             .await;
 
@@ -765,12 +710,20 @@ mod units_for_slot_tests {
 
         let mock_cache = Cache::initialize(mock_client).await;
 
-        let ad_units = get_supermarket_ad_units();
+        let market_ad_units = AdUnitsResponse(
+            channel
+                .spec
+                .ad_units
+                .clone()
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        );
         let mock_slot = get_supermarket_ad_slot(&rules, &categories);
 
         Mock::given(method("GET"))
             .and(path("/market/units"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(&ad_units))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&market_ad_units))
             .mount(&server)
             .await;
 
@@ -862,12 +815,20 @@ mod units_for_slot_tests {
 
         let mock_cache = Cache::initialize(mock_client).await;
 
-        let ad_units = get_supermarket_ad_units();
+        let market_ad_units = AdUnitsResponse(
+            channel
+                .spec
+                .ad_units
+                .clone()
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        );
         let mock_slot = get_supermarket_ad_slot(&rules, &categories);
 
         Mock::given(method("GET"))
             .and(path("/market/units"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(&ad_units))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&market_ad_units))
             .mount(&server)
             .await;
 
@@ -876,7 +837,7 @@ mod units_for_slot_tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(&mock_slot))
             .mount(&server)
             .await;
-        let campaign = get_mock_campaign(channel.clone(), &ad_units);
+        let campaign = get_mock_campaign(channel.clone());
 
         let request = Request::get(format!(
             "/units-for-slot/{}?depositAsset={}",
@@ -955,12 +916,20 @@ mod units_for_slot_tests {
 
         let mock_cache = Cache::initialize(mock_client).await;
 
-        let ad_units = get_supermarket_ad_units();
+        let market_ad_units = AdUnitsResponse(
+            channel
+                .spec
+                .ad_units
+                .clone()
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        );
         let mock_slot = get_supermarket_ad_slot(&rules, &categories);
 
         Mock::given(method("GET"))
             .and(path("/market/units"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(&ad_units))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&market_ad_units))
             .mount(&server)
             .await;
 

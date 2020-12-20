@@ -33,6 +33,14 @@ docker build -t adex-supermarket .
 
 2. After building the image you can start a container (`production`):
 
+- with production `https://market.adex.network`:
+
+```
+docker run --detach -e ENV=production -p 3000:3000 -e MARKET_URL=https://market.adex.network/ adex-supermarket
+```
+
+- with locally running `adex-market`:
+
 ```bash
 docker run --detach -e ENV=production -e MARKET_URL=https://localhost:4000 adex-supermarket
 ```
