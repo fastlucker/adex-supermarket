@@ -97,7 +97,7 @@ pub async fn serve(
     // Then bind and serve...
     let server = Server::bind(&addr).serve(make_service);
 
-    let graceful = server.with_graceful_shutdown(shutdown_signal());
+    let graceful = server.with_graceful_shutdown(shutdown_signal(logger.clone()));
 
     // And run forever...
     if let Err(e) = graceful.await {
@@ -178,10 +178,11 @@ async fn handle<C: cache::Client>(
     }
 }
 
-async fn shutdown_signal() {
+async fn shutdown_signal(logger: Logger) {
     // Wait for the CTRL+C signal
     tokio::signal::ctrl_c()
         .await
+        .map(|_| info!(&logger, "Shutting down..."))
         .expect("failed to install CTRL+C signal handler");
 }
 
