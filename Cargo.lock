@@ -1563,7 +1563,7 @@ dependencies = [
 [[package]]
 name = "primitives"
 version = "0.1.0"
-source = "git+https://github.com/AdExNetwork/adex-validator-stack-rust?branch=bugfixes#20ac5e78b6c2bc94aebe4806a256421247a3866b"
+source = "git+https://github.com/AdExNetwork/adex-validator-stack-rust?branch=dev#978a71b81ae0025105b1ef88856fe802a789a005"
 dependencies = [
  "async-trait",
  "chrono",
