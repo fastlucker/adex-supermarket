@@ -170,9 +170,10 @@ async fn handle<C: cache::Client>(
                 Ok(mut response) => {
                     info!(&logger, "Proxied request to market"; "uri" => uri, "method" => %method);
 
-                    response
-                        .headers_mut()
-                        .insert("x-served-by", HeaderValue::from_static("adex-supermarket"));
+                    response.headers_mut().insert(
+                        "x-served-by",
+                        HeaderValue::from_static("adex-supermarket-proxy"),
+                    );
 
                     response
                 }
