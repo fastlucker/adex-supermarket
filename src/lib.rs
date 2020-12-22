@@ -7,7 +7,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use thiserror::Error;
 
-use http::{header::HOST, StatusCode, Uri};
+use http::{header::HOST, HeaderValue, StatusCode, Uri};
 use slog::{error, info, Logger};
 
 pub mod cache;
@@ -119,7 +119,14 @@ async fn handle<C: cache::Client>(
 
     match (is_units_for_slot, req.method()) {
         (true, &Method::GET) => {
-            get_units_for_slot(&logger, market.clone(), &config, &cache, req).await
+            let mut response =
+                get_units_for_slot(&logger, market.clone(), &config, &cache, req).await?;
+
+            response
+                .headers_mut()
+                .insert("x-served-by", HeaderValue::from_static("adex-supermarket"));
+
+            Ok(response)
         }
         (_, method) => {
             let method = method.clone();
@@ -140,7 +147,6 @@ async fn handle<C: cache::Client>(
             let uri = format!("{}{}", market.market_url, path_and_query);
 
             *req.uri_mut() = uri.parse::<Uri>()?;
-
             // for Cloudflare we need to add a HOST header
             let market_host_header = {
                 let url = market.market_url.to_url();
@@ -161,8 +167,13 @@ async fn handle<C: cache::Client>(
             req.headers_mut().insert(HOST, host);
 
             let proxy_response = match client.request(req).await {
-                Ok(response) => {
+                Ok(mut response) => {
                     info!(&logger, "Proxied request to market"; "uri" => uri, "method" => %method);
+
+                    response.headers_mut().insert(
+                        "x-served-by",
+                        HeaderValue::from_static("adex-supermarket-proxy"),
+                    );
 
                     response
                 }
