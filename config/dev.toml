@@ -6,6 +6,10 @@ recency = 240
 fetch_campaigns_every = 60
 update_campaigns_every = 20
 
+[market]
+# in seconds - 20 minutes
+keep_alive_interval = 1200
+
 [limits]
 # if left out or commented out it won't be applied.
 # 100 DAI/TST
