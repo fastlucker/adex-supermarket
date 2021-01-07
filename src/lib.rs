@@ -1,13 +1,12 @@
 #![deny(clippy::all)]
 #![deny(rust_2018_idioms)]
 pub use cache::Cache;
-use hyper::{Body, Client, Method, Request, Response, Server};
-use hyper_tls::HttpsConnector;
+use hyper::{Body, Method, Request, Response, Server};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use thiserror::Error;
 
-use http::{header::HOST, HeaderValue, StatusCode, Uri};
+use http::{HeaderValue, StatusCode};
 use slog::{error, info, Logger};
 
 pub mod cache;
@@ -18,16 +17,13 @@ pub mod status;
 mod units_for_slot;
 pub mod util;
 
-use market::{MarketApi, MarketUrl};
+use market::{MarketApi, MarketUrl, Proxy};
 use units_for_slot::get_units_for_slot;
 
 pub use config::{Config, Timeouts};
 pub use sentry_api::SentryApi;
 
 pub(crate) static ROUTE_UNITS_FOR_SLOT: &str = "/units-for-slot/";
-
-// Uses Https Client
-type HyperClient = Client<HttpsConnector<hyper::client::connect::HttpConnector>>;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -60,29 +56,28 @@ pub async fn serve(
 ) -> Result<(), Error> {
     use hyper::service::{make_service_fn, service_fn};
 
-    let https = HttpsConnector::new();
-    let client: HyperClient = Client::builder().build(https);
+    let proxy_client = market::Proxy::new(market_url.clone(), &config, logger.clone());
 
-    let market = Arc::new(MarketApi::new(market_url, logger.clone())?);
+    let market = Arc::new(MarketApi::new(market_url, &config, logger.clone())?);
 
     let cache = spawn_fetch_campaigns(logger.clone(), config.clone()).await?;
 
     // And a MakeService to handle each connection...
     let make_service = make_service_fn(|_| {
-        let client = client.clone();
+        let proxy_client = proxy_client.clone();
         let cache = cache.clone();
         let logger = logger.clone();
         let market = market.clone();
         let config = config.clone();
         async move {
             Ok::<_, Error>(service_fn(move |req| {
-                let client = client.clone();
+                let proxy_client = proxy_client.clone();
                 let cache = cache.clone();
                 let market = market.clone();
                 let logger = logger.clone();
                 let config = config.clone();
                 async move {
-                    match handle(req, config, cache, client, logger.clone(), market).await {
+                    match handle(req, config, cache, proxy_client, logger.clone(), market).await {
                         Err(error) => {
                             error!(&logger, "Error ocurred"; "error" => ?error);
                             Err(error)
@@ -108,10 +103,10 @@ pub async fn serve(
 }
 
 async fn handle<C: cache::Client>(
-    mut req: Request<Body>,
+    req: Request<Body>,
     config: Config,
     cache: Cache<C>,
-    client: HyperClient,
+    market_proxy: Proxy,
     logger: Logger,
     market: Arc<MarketApi>,
 ) -> Result<Response<Body>, Error> {
@@ -128,64 +123,14 @@ async fn handle<C: cache::Client>(
 
             Ok(response)
         }
-        (_, method) => {
-            let method = method.clone();
+        _ => match market_proxy.proxy(req).await {
+            Ok(response) => Ok(response),
+            Err(err) => {
+                error!(&logger, "Proxying request to market failed"; "error" => ?err);
 
-            let path_and_query = req
-                .uri()
-                .path_and_query()
-                .map(|p_q| {
-                    let string = p_q.to_string();
-                    // the MarketUrl (i.e. ApiUrl) always suffixes the path
-                    string
-                        .strip_prefix('/')
-                        .map(ToString::to_string)
-                        .unwrap_or(string)
-                })
-                .unwrap_or_default();
-
-            let uri = format!("{}{}", market.market_url, path_and_query);
-
-            *req.uri_mut() = uri.parse::<Uri>()?;
-            // for Cloudflare we need to add a HOST header
-            let market_host_header = {
-                let url = market.market_url.to_url();
-                let host = url
-                    .host_str()
-                    .expect("MarketUrl always has a host")
-                    .to_string();
-
-                match url.port() {
-                    Some(port) => format!("{}:{}", host, port),
-                    None => host,
-                }
-            };
-
-            let host = market_host_header
-                .parse()
-                .expect("The MarketUrl should be valid HOST header");
-            req.headers_mut().insert(HOST, host);
-
-            let proxy_response = match client.request(req).await {
-                Ok(mut response) => {
-                    info!(&logger, "Proxied request to market"; "uri" => uri, "method" => %method);
-
-                    response.headers_mut().insert(
-                        "x-served-by",
-                        HeaderValue::from_static("adex-supermarket-proxy"),
-                    );
-
-                    response
-                }
-                Err(err) => {
-                    error!(&logger, "Proxying request to market failed"; "uri" => uri, "method" => %method, "error" => ?&err);
-
-                    service_unavailable()
-                }
-            };
-
-            Ok(proxy_response)
-        }
+                Ok(service_unavailable())
+            }
+        },
     }
 }
 
@@ -225,7 +170,6 @@ async fn spawn_fetch_campaigns(
         let mut select_time = select(new_interval, update_interval);
 
         while let Some(time_for) = select_time.next().await {
-            // @TODO: Timeout the action
             match time_for {
                 TimeFor::New(_) => {
                     let timeout_duration = config.timeouts.cache_fetch_campaigns_from_market;
