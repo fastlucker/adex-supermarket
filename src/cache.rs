@@ -270,6 +270,7 @@ mod test {
                 signature: String::from("0x0"),
                 state_root: String::from("0x0"),
                 balances: expected_balances.clone(),
+                exhausted: false,
             }),
         };
 
@@ -291,6 +292,7 @@ mod test {
                     signature: String::from("0x0"),
                     state_root: String::from("0x0"),
                     balances: expected_balances.clone(),
+                    exhausted: false,
                 }),
             }],
         };
@@ -408,6 +410,7 @@ mod test {
                 signature: String::from("0x0"),
                 state_root: String::from("0x0"),
                 balances: expected_balances.clone(),
+                exhausted: false,
             }),
         };
 
@@ -576,6 +579,7 @@ mod test {
                 signature: String::from("0x0"),
                 state_root: String::from("0x0"),
                 balances: expected_balances.clone(),
+                exhausted: false,
             }),
         };
 

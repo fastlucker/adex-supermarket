@@ -51,6 +51,7 @@ pub(crate) fn get_approve_state_msg(is_healthy: bool) -> ApproveStateValidatorMe
             state_root: String::from("0x0"),
             signature: String::from("0x0"),
             is_healthy,
+            exhausted: false,
         }),
     }
 }
@@ -63,6 +64,7 @@ pub(crate) fn get_new_state_msg() -> NewStateValidatorMessage {
             signature: String::from("0x0"),
             state_root: String::from("0x0"),
             balances: Default::default(),
+            exhausted: false,
         }),
     }
 }
@@ -75,6 +77,7 @@ pub(crate) fn get_new_state_validator_msg() -> ValidatorMessage {
             signature: String::from("0x0"),
             state_root: String::from("0x0"),
             balances: Default::default(),
+            exhausted: false,
         }),
     }
 }
@@ -172,6 +175,7 @@ mod is_finalized {
                         state_root: String::new(),
                         signature: String::new(),
                         balances,
+                        exhausted: false,
                     }),
                 }),
                 approve_state: None,
@@ -219,6 +223,7 @@ mod is_finalized {
                         state_root: String::new(),
                         signature: String::new(),
                         balances,
+                        exhausted: false,
                     }),
                 }),
                 approve_state: None,

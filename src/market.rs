@@ -56,7 +56,9 @@ impl MarketApi {
         // @TODO: maybe add timeout?
         // 15 minutes
         let cache_control_max_age = "max-age=900".parse().unwrap();
-        let headers = vec![(CACHE_CONTROL, cache_control_max_age)].into_iter().collect();
+        let headers = vec![(CACHE_CONTROL, cache_control_max_age)]
+            .into_iter()
+            .collect();
 
         let client = Client::builder()
             .tcp_keepalive(config.market.keep_alive_interval)
