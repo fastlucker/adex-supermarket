@@ -62,6 +62,7 @@ impl MarketApi {
 
         let client = Client::builder()
             .tcp_keepalive(config.market.keep_alive_interval)
+            .cookie_store(true)
             .default_headers(headers)
             .build()?;
 
