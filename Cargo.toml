@@ -17,11 +17,11 @@ hyper-tls = "0.4"
 hyper = { version = "0.13", features = ["stream"] }
 http = "0.2"
 
-reqwest = { version = "0.10", features = ["json"] }
+reqwest = { version = "0.10.10", features = ["json"] }
 
 serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
-serde_urlencoded = "0.6"
+serde_urlencoded = "0.7"
 
 # CLI
 clap = "2.33"
@@ -33,10 +33,10 @@ slog-term = "2.6"
 slog-async = "2.5"
 # Other
 lazy_static = "1.4"
-url = { version = "2.1", features = ["serde"]}
+url = { version = "2.2", features = ["serde"]}
 # UA parsing
 woothee = "^0.11"
 
 [dev-dependencies]
-wiremock = "0.2"
+wiremock = "0.4"
 pretty_assertions = "^0.6"
