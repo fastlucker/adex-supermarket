@@ -275,6 +275,7 @@ mod proxy {
         /// For requests to the Market:
         ///
         /// - `HOST` - `market_url` is used to set the `HOST` header of the request (required for Cloudflare)
+        ///    This is done because the initial request that we proxy contains a `HOST` header so we need to override it with the correct one - the Market.
         ///
         /// For the response of the Supermarket (before proxied response is returned):
         ////
@@ -302,8 +303,8 @@ mod proxy {
 
             let https = HttpsConnector::new();
 
+            // since original request contains a HOST header we need to manually override it and we can't use `.set_host(true)`
             let client = Client::builder()
-                // set the host for the proxy requests
                 .http2_keep_alive_interval(config.market.keep_alive_interval)
                 .build(https);
 
@@ -350,8 +351,6 @@ mod proxy {
             request
                 .headers_mut()
                 .extend(self.inner.default_headers.request.clone());
-
-            // dbg!(request.headers());
 
             let mut proxy_response =
                 self.inner

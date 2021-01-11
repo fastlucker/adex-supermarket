@@ -85,22 +85,29 @@ where
         // - Extend the Active Campaigns with the new ones
         // - Remove the Finalized `ChannelId`s from the Active Campaigns
         {
-            match &new_active {
-                ActiveAction::New(new_active) => {
-                    info!(&self.logger, "Adding New / Updating {} Active Campaigns", new_active.len(); "ChannelIds" => format_args!("{:?}", new_active.keys()));
-                }
-
-                ActiveAction::Update(update_active) => {
-                    info!(&self.logger, "Updating {} Active Campaigns", update_active.len(); "ChannelIds" => format_args!("{:?}", update_active.keys()));
-                }
-            }
-
             let mut active = self.active.write().await;
-
+            // Log and extend active cache
+            // only log messages if there are actions to take on campaigns
             match new_active {
                 // This will replace existing Campaigns and it will add the newly found ones
-                ActiveAction::New(new_active) => active.extend(new_active),
-                ActiveAction::Update(update_active) => {
+                ActiveAction::New(new_active) if !new_active.is_empty() => {
+                    info!(
+                        &self.logger,
+                        "Adding New / Updating {} Active Campaigns",
+                        new_active.len()
+                    );
+
+                    // extend the Active Cache with new active campaigns
+                    active.extend(new_active)
+                }
+
+                ActiveAction::Update(update_active) if !update_active.is_empty() => {
+                    info!(
+                        &self.logger,
+                        "Updating {} Active Campaigns",
+                        update_active.len()
+                    );
+
                     for (channel_id, (new_status, new_balances)) in update_active {
                         active
                             .entry(channel_id)
@@ -110,26 +117,34 @@ where
                             });
                     }
                 }
+                _ => {}
             }
 
-            info!(&self.logger, "Try to Finalize Campaigns in the Active Cache"; "finalized" => format_args!("{:?}", &new_finalized));
-
-            for id in new_finalized.iter() {
-                // remove from active campaigns and log
-                if let Some(campaign) = active.remove(id) {
-                    info!(&self.logger, "Removed Campaign ({:?}) from Active Cache", id; "campaign" => ?campaign);
+            if !new_finalized.is_empty() {
+                info!(
+                    &self.logger,
+                    "Finalize {} Campaigns in the Active Cache",
+                    new_finalized.len()
+                );
+                for id in new_finalized.iter() {
+                    // remove from active campaigns
+                    // in practice we don't care if this value was in the active cache
+                    // this is why we don't handle the `Option` returned from `remove()`
+                    active.remove(id);
                 }
-                // the None variant is when a campaign is Finalized before it was inserted inside the Active Cache
             }
         } // Active cache - release of RwLockWriteGuard
 
         // Updates Finalized cache
         // - Extend the Finalized `ChannelId`s with the new ones
-        {
-            info!(&self.logger, "Extend with {} Finalized Campaigns", new_finalized.len(); "finalized" => format_args!("{:?}", &new_finalized));
-            let mut finalized = self.finalized.write().await;
+        if !new_finalized.is_empty() {
+            info!(
+                &self.logger,
+                "Extend with {} Campaigns the Finalized Cache",
+                new_finalized.len()
+            );
 
-            finalized.extend(new_finalized);
+            self.finalized.write().await.extend(new_finalized);
         } // Finalized cache - release of RwLockWriteGuard
     }
 

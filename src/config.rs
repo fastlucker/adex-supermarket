@@ -74,9 +74,10 @@ impl Config {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Market {
+    /// Duration specified will be the time to remain idle before sending a TCP keepalive probe.
     /// Applied to:
-    /// - The [`MarketApi`](crate::MarketApi) and it's `reqwest::Client` (see [`reqwest::ClientBuilder::tcp_keepalive`](reqwest::ClientBuilder::tcp_keepalive))
-    /// - [`market::Proxy`](crate::market::Proxy) on the [`hyper::Client`](hyper::Client) (see [`hyper::client::Builder.html::http2_keep_alive_interval`](hyper::client::Builder.html::http2_keep_alive_interval))
+    /// - [`market::Proxy`](crate::market::Proxy) on the [`hyper::Client`](hyper::Client) (see [`hyper::client::Builder::http2_keep_alive_interval`](hyper::client::Builder::http2_keep_alive_interval))
+    /// - The [`MarketApi`](crate::MarketApi) and it's [`reqwest::Client`] (see [`reqwest::ClientBuilder::tcp_keepalive`](reqwest::ClientBuilder::tcp_keepalive))
     #[serde(deserialize_with = "seconds_to_std_duration")]
     pub keep_alive_interval: Duration,
 }
