@@ -1,4 +1,3 @@
-use http::header::CACHE_CONTROL;
 use primitives::{
     market::{AdSlotResponse, AdUnitResponse, AdUnitsResponse, Campaign, StatusType},
     util::ApiUrl,
@@ -54,16 +53,9 @@ impl MarketApi {
 
     pub fn new(market_url: MarketUrl, config: &Config, logger: Logger) -> Result<Self> {
         // @TODO: maybe add timeout?
-        // 15 minutes
-        let cache_control_max_age = "max-age=900".parse().unwrap();
-        let headers = vec![(CACHE_CONTROL, cache_control_max_age)]
-            .into_iter()
-            .collect();
-
         let client = Client::builder()
             .tcp_keepalive(config.market.keep_alive_interval)
             .cookie_store(true)
-            .default_headers(headers)
             .build()?;
 
         Ok(Self {
@@ -301,12 +293,19 @@ mod proxy {
                 .parse()
                 .expect("The MarketUrl should be valid HOST header");
 
-            let https = HttpsConnector::new();
+            let client = {
+                let mut http = hyper::client::HttpConnector::new();
+                http.set_keepalive(Some(config.market.keep_alive_interval.clone()));
+                // allow of `https://` in URIs
+                http.enforce_http(false);
 
-            // since original request contains a HOST header we need to manually override it and we can't use `.set_host(true)`
-            let client = Client::builder()
-                .http2_keep_alive_interval(config.market.keep_alive_interval)
-                .build(https);
+                let https = HttpsConnector::new_with_connector(http);
+
+                // since original request contains a HOST header we need to manually override it and we can't use `.set_host(true)`
+                Client::builder()
+                    .http2_keep_alive_interval(config.market.keep_alive_interval)
+                    .build(https)
+            };
 
             Self {
                 inner: Arc::new(ProxyInner {
