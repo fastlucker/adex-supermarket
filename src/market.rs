@@ -220,7 +220,7 @@ mod proxy {
     };
     use hyper::{client::connect::HttpConnector, Body, Client};
     use hyper_tls::HttpsConnector;
-    use slog::{Logger, debug};
+    use slog::{debug, Logger};
     use thiserror::Error;
 
     use crate::Config;

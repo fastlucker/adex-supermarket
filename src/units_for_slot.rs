@@ -7,15 +7,14 @@ use crate::{
 use chrono::Utc;
 use http::header::{HeaderName, CONTENT_TYPE};
 use hyper::{header::USER_AGENT, Body, Request, Response};
-use input::Input;
 use primitives::{
     market::AdSlotResponse,
     supermarket::units_for_slot::response,
     supermarket::units_for_slot::response::Response as UnitsForSlotResponse,
-    targeting::{eval_with_callback, get_pricing_bounds, input, Output},
+    targeting::{eval_with_callback, get_pricing_bounds, input, input::Input, Output},
     AdUnit, ValidatorId,
 };
-use slog::{Logger, debug, error, warn};
+use slog::{debug, error, warn, Logger};
 use std::sync::Arc;
 use url::{form_urlencoded, Url};
 use woothee::{parser::Parser, woothee::VALUE_UNKNOWN};
