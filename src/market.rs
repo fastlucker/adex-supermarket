@@ -220,7 +220,7 @@ mod proxy {
     };
     use hyper::{client::connect::HttpConnector, Body, Client};
     use hyper_tls::HttpsConnector;
-    use slog::{info, Logger};
+    use slog::{Logger, debug};
     use thiserror::Error;
 
     use crate::Config;
@@ -368,7 +368,7 @@ mod proxy {
                 .headers_mut()
                 .extend(self.inner.default_headers.response.clone());
 
-            info!(&self.inner.logger, "Proxied request to Market"; "uri" => %uri, "method" => %method);
+            debug!(&self.inner.logger, "Proxied request to Market"; "uri" => %uri, "method" => %method);
 
             Ok(proxy_response)
         }
