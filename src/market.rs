@@ -273,7 +273,7 @@ mod proxy {
         ////
         /// - `x-served-by` with value `adex-supermarket-proxy`
         ///
-        /// Sets the HTTP/2 `Keep-Alive` based on the passed [`Config`](crate::Config)
+        /// Sets the HTTP/1 & HTTP/2 `Keep-Alive` based on the passed [`Config`](crate::Config)
         pub fn new(market_url: MarketUrl, config: &Config, logger: Logger) -> Self {
             // for Cloudflare we need to add a HOST header
             let market_host_header = {
@@ -295,7 +295,7 @@ mod proxy {
 
             let client = {
                 let mut http = hyper::client::HttpConnector::new();
-                http.set_keepalive(Some(config.market.keep_alive_interval.clone()));
+                http.set_keepalive(Some(config.market.keep_alive_interval));
                 // allow of `https://` in URIs
                 http.enforce_http(false);
 
