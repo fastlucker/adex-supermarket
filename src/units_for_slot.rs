@@ -69,7 +69,6 @@ pub async fn get_units_for_slot<C: Client>(
         };
 
         let accepted_referrers = ad_slot_response.accepted_referrers.clone();
-        let units_ipfses: Vec<String> = units.iter().map(|au| au.ipfs.to_string()).collect();
         let fallback_unit: Option<AdUnit> = match ad_slot_response.slot.fallback_unit.as_ref() {
             Some(unit_ipfs) => {
                 let ad_unit_response = match market.fetch_unit(&unit_ipfs).await {
@@ -106,7 +105,7 @@ pub async fn get_units_for_slot<C: Client>(
             None => None,
         };
 
-        debug!(&logger, "Fetched {} AdUnits for AdSlot", units_ipfses.len(); "AdSlot" => ipfs);
+        debug!(&logger, "Fetched {} AdUnits for AdSlot", units.len(); "AdSlot" => ipfs);
         let query = req.uri().query().unwrap_or_default();
         let parsed_query = form_urlencoded::parse(query.as_bytes());
 
