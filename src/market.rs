@@ -7,6 +7,10 @@ use reqwest::{Client, Error, StatusCode};
 use slog::{info, Logger};
 use std::fmt;
 
+use crate::Config;
+
+pub use proxy::Proxy;
+
 pub type MarketUrl = ApiUrl;
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -47,9 +51,12 @@ impl MarketApi {
     /// It should always be > 1
     const MARKET_AD_UNITS_LIMIT: u64 = 1_000;
 
-    pub fn new(market_url: MarketUrl, logger: Logger) -> Result<Self> {
+    pub fn new(market_url: MarketUrl, config: &Config, logger: Logger) -> Result<Self> {
         // @TODO: maybe add timeout?
-        let client = Client::builder().build()?;
+        let client = Client::builder()
+            .tcp_keepalive(config.market.keep_alive_interval)
+            .cookie_store(true)
+            .build()?;
 
         Ok(Self {
             market_url,
@@ -193,5 +200,176 @@ impl MarketApi {
         );
 
         Ok(campaigns)
+    }
+}
+
+mod proxy {
+    use std::sync::Arc;
+
+    use http::{
+        header::{HeaderMap, HeaderName, HOST},
+        HeaderValue, Method, Request, Response, Uri,
+    };
+    use hyper::{client::connect::HttpConnector, Body, Client};
+    use hyper_tls::HttpsConnector;
+    use slog::{debug, Logger};
+    use thiserror::Error;
+
+    use crate::Config;
+
+    use super::MarketUrl;
+
+    type HyperClient = Client<HttpsConnector<HttpConnector>>;
+
+    #[derive(Debug, Error)]
+    pub enum Error {
+        #[error("Proxy request to Market Method: `{uri}` URI: `{method}`")]
+        Proxy {
+            uri: Uri,
+            method: Method,
+            source: hyper::Error,
+        },
+        #[error("Failed to parse URI for request `{uri}`")]
+        Uri {
+            uri: String,
+            source: http::uri::InvalidUri,
+        },
+    }
+
+    #[derive(Debug, Clone)]
+    struct DefaultHeaders {
+        /// Headers set on requesting the Market URL
+        request: HeaderMap,
+        /// Additionally set Headers on the Supermarket response on top of the proxied response Headers
+        response: HeaderMap,
+    }
+
+    /// Proxy used for proxying all requests intended for the Market.
+    /// It's cheap to `clone()` it.
+    ///
+    /// Internally it uses [`hyper::Client`](hyper::Client) with [`hyper_tls::HttpsConnector`](hyper_tls::HttpsConnector)
+    #[derive(Debug, Clone)]
+    pub struct Proxy {
+        inner: Arc<ProxyInner>,
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct ProxyInner {
+        client: HyperClient,
+        default_headers: DefaultHeaders,
+        market_url: MarketUrl,
+        logger: Logger,
+    }
+
+    impl Proxy {
+        /// Creates a new Proxy Client with default HTTP Headers:
+        ///
+        /// For requests to the Market:
+        ///
+        /// - `HOST` - `market_url` is used to set the `HOST` header of the request (required for Cloudflare)
+        ///    This is done because the initial request that we proxy contains a `HOST` header so we need to override it with the correct one - the Market.
+        ///
+        /// For the response of the Supermarket (before proxied response is returned):
+        ////
+        /// - `x-served-by` with value `adex-supermarket-proxy`
+        ///
+        /// Sets the HTTP/1 & HTTP/2 `Keep-Alive` based on the passed [`Config`](crate::Config)
+        pub fn new(market_url: MarketUrl, config: &Config, logger: Logger) -> Self {
+            // for Cloudflare we need to add a HOST header
+            let market_host_header = {
+                let url = market_url.to_url();
+                let host = url
+                    .host_str()
+                    .expect("MarketUrl always has a host")
+                    .to_string();
+
+                match url.port() {
+                    Some(port) => format!("{}:{}", host, port),
+                    None => host,
+                }
+            };
+
+            let host: HeaderValue = market_host_header
+                .parse()
+                .expect("The MarketUrl should be valid HOST header");
+
+            let client = {
+                let mut http = hyper::client::HttpConnector::new();
+                http.set_keepalive(Some(config.market.keep_alive_interval));
+                // allow of `https://` in URIs
+                http.enforce_http(false);
+
+                let https = HttpsConnector::new_with_connector(http);
+
+                // since original request contains a HOST header we need to manually override it and we can't use `.set_host(true)`
+                Client::builder()
+                    .http2_keep_alive_interval(config.market.keep_alive_interval)
+                    .build(https)
+            };
+
+            Self {
+                inner: Arc::new(ProxyInner {
+                    client,
+                    default_headers: DefaultHeaders {
+                        request: vec![(HOST, host)].into_iter().collect(),
+                        response: vec![(
+                            HeaderName::from_static("x-served-by"),
+                            HeaderValue::from_static("adex-supermarket-proxy"),
+                        )]
+                        .into_iter()
+                        .collect(),
+                    },
+                    market_url,
+                    logger,
+                }),
+            }
+        }
+
+        /// Also sets the default headers like `HOST: marketUrl`
+        pub async fn proxy(&self, mut request: Request<Body>) -> Result<Response<Body>, Error> {
+            let method = request.method().clone();
+            let path_and_query = request
+                .uri()
+                .path_and_query()
+                .map(|p_q| {
+                    let string = p_q.to_string();
+                    // the MarketUrl (i.e. ApiUrl) always suffixes the path
+                    string
+                        .strip_prefix('/')
+                        .map(ToString::to_string)
+                        .unwrap_or(string)
+                })
+                .unwrap_or_default();
+
+            let uri_string = format!("{}{}", self.inner.market_url, path_and_query);
+            let uri = uri_string.parse::<Uri>().map_err(|err| Error::Uri {
+                uri: uri_string,
+                source: err,
+            })?;
+            *request.uri_mut() = uri.clone();
+            request
+                .headers_mut()
+                .extend(self.inner.default_headers.request.clone());
+
+            let mut proxy_response =
+                self.inner
+                    .client
+                    .request(request)
+                    .await
+                    .map_err(|err| Error::Proxy {
+                        uri: uri.clone(),
+                        method: method.clone(),
+                        source: err,
+                    })?;
+
+            // add the additional response headers to the Response from the Market
+            proxy_response
+                .headers_mut()
+                .extend(self.inner.default_headers.response.clone());
+
+            debug!(&self.inner.logger, "Proxied request to Market"; "uri" => %uri, "method" => %method);
+
+            Ok(proxy_response)
+        }
     }
 }

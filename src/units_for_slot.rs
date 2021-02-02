@@ -7,15 +7,14 @@ use crate::{
 use chrono::Utc;
 use http::header::{HeaderName, CONTENT_TYPE};
 use hyper::{header::USER_AGENT, Body, Request, Response};
-use input::Input;
 use primitives::{
     market::AdSlotResponse,
     supermarket::units_for_slot::response,
     supermarket::units_for_slot::response::Response as UnitsForSlotResponse,
-    targeting::{eval_with_callback, get_pricing_bounds, input, Output},
+    targeting::{eval_with_callback, get_pricing_bounds, input, input::Input, Output},
     AdUnit, ValidatorId,
 };
-use slog::{error, info, warn, Logger};
+use slog::{debug, error, warn, Logger};
 use std::sync::Arc;
 use url::{form_urlencoded, Url};
 use woothee::{parser::Parser, woothee::VALUE_UNKNOWN};
@@ -41,7 +40,7 @@ pub async fn get_units_for_slot<C: Client>(
     } else {
         let ad_slot_response = match market.fetch_slot(&ipfs).await {
             Ok(Some(response)) => {
-                info!(&logger, "Fetched AdSlot"; "AdSlot" => ipfs);
+                debug!(&logger, "Fetched AdSlot"; "AdSlot" => ipfs);
                 response
             }
             Ok(None) => {
@@ -70,12 +69,11 @@ pub async fn get_units_for_slot<C: Client>(
         };
 
         let accepted_referrers = ad_slot_response.accepted_referrers.clone();
-        let units_ipfses: Vec<String> = units.iter().map(|au| au.ipfs.to_string()).collect();
         let fallback_unit: Option<AdUnit> = match ad_slot_response.slot.fallback_unit.as_ref() {
             Some(unit_ipfs) => {
                 let ad_unit_response = match market.fetch_unit(&unit_ipfs).await {
                     Ok(Some(response)) => {
-                        info!(&logger, "Fetched AdUnit"; "AdUnit" => unit_ipfs);
+                        debug!(&logger, "Fetched AdUnit"; "AdUnit" => unit_ipfs);
                         response
                     }
                     Ok(None) => {
@@ -107,7 +105,7 @@ pub async fn get_units_for_slot<C: Client>(
             None => None,
         };
 
-        info!(&logger, "Fetched AdUnits for AdSlot"; "AdSlot" => ipfs, "AdUnits" => ?&units_ipfses);
+        debug!(&logger, "Fetched {} AdUnits for AdSlot", units.len(); "AdSlot" => ipfs);
         let query = req.uri().query().unwrap_or_default();
         let parsed_query = form_urlencoded::parse(query.as_bytes());
 
@@ -169,7 +167,7 @@ pub async fn get_units_for_slot<C: Client>(
         let campaigns_limited_by_earner =
             get_campaigns(cache, config, &deposit_assets, publisher_id).await;
 
-        info!(&logger, "Fetched Cache campaigns limited by earner (publisher)"; "length" => campaigns_limited_by_earner.len(), "publisher_id" => %publisher_id);
+        debug!(&logger, "Fetched Cache campaigns limited by earner (publisher)"; "campaigns" => campaigns_limited_by_earner.len(), "publisher_id" => %publisher_id);
 
         // We return those in the result (which means AdView would have those) but we don't actually use them
         // we do that in order to have the same variables as the validator, so that the `price` is the same

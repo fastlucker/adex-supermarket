@@ -39,7 +39,7 @@ docker build -t adex-supermarket .
 docker run --detach -e ENV=production -p 3000:3000 -e MARKET_URL=https://market.adex.network/ adex-supermarket
 ```
 
-- with locally running `adex-market`:
+- with locally running `adex-market` (on `https://localhost:4000`):
 
 ```bash
 docker run --detach -e ENV=production -e MARKET_URL=https://localhost:4000 adex-supermarket
@@ -50,15 +50,18 @@ You can also set the CLI option of the Supermarket using the following environme
 
 * `MARKET_URL`: *required* - sets the `--marketUrl` / `-m`
 * `CONFIG`: *optional* - if set, it will pass the `--config` / `-c` option with the specified configuration file path inside the container
+* `IP_ADDR`: *optional*, default: `127.0.0.1` - IP address to which the web server to be bound 
+  This is useful when running in `Docker` and sometimes we need to change the IP to `0.0.0.0`
+* `PORT`: *optional*, default: `3000` - the port to which the web server to be bound
 
 ## Development & Testing
 
-For development purposes, all you have to do is run `Clippy`, `Rustfmt` & make sure that `cargo test` passes:
+For development purposes, all you have to do is format your code with `Rustfmt`, fix any `Clippy` warnings & make sure that all the tests pass:
 
 ```bash
-cargo clippy
 cargo fmt
-cargo test
+cargo clippy
+cargo test --all-features
 ```
 
 ### Comparing market/supermarket output for /units-for-slot route
